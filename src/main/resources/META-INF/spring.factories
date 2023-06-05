@@ -1,0 +1,3 @@
+# Auto Configure
+org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
+com.amazon.s3.v2.auto.config.AmazonS3ClientV2AutoConfiguration
