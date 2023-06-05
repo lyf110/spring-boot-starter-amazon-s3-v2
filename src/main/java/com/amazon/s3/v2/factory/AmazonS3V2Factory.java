@@ -4,8 +4,10 @@ import com.amazon.s3.v2.config.S3V2Base;
 import com.amazon.s3.v2.template.AmazonS3V2Template;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentials;
+import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 
 import java.net.MalformedURLException;
@@ -35,6 +37,7 @@ public class AmazonS3V2Factory {
                 .region(Region.of(region)) // 指定region
                 .credentialsProvider(() -> credentials) // 提供认证凭证信息
                 .endpointOverride(new URI(endPoint)) // 提供存储服务器的url
+
                 .build();
     }
 

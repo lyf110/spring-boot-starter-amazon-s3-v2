@@ -1,6 +1,7 @@
 package com.amazon.s3.v2.core;
 
 import com.amazon.s3.v2.config.S3V2Base;
+import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.*;
@@ -8,6 +9,7 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
 
 import java.io.File;
+import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
@@ -66,6 +68,22 @@ public interface IAmazonS3V2Template extends IAmazonS3V2Bucket, IAmazonS3V2Objec
      * @return 处理后的对象名称
      */
     String handlerUploadObjectName(String objectName, String baseDir);
+
+    /**
+     * 获取对象存储的前缀
+     *
+     * @return 对象前缀
+     */
+    String getUploadObjectNamePrefix();
+
+
+    /**
+     * 获取对象存储的前缀
+     *
+     * @param baseDir 基础路径
+     * @return 对象前缀
+     */
+    String getUploadObjectNamePrefix(String baseDir);
 
     /**
      * 分片上传文件
@@ -174,4 +192,25 @@ public interface IAmazonS3V2Template extends IAmazonS3V2Bucket, IAmazonS3V2Objec
      * @return 预签名的对象的url
      */
     Optional<PresignedGetObjectRequest> getPresignedUrl(String bucketName, String objectName, Duration signatureTime);
+
+
+    /**
+     * 下载一个文件
+     *
+     * @param bucketName       文件所在的桶
+     * @param objectName       对象名
+     * @param downloadBasePath 下载到本地所在的目录
+     * @throws IOException IOException
+     */
+    void download(String bucketName, String objectName, String downloadBasePath) throws IOException;
+
+    /**
+     * 下载文件夹
+     *
+     * @param bucketName       桶名称
+     * @param objectPrefix     对象前缀，也可以理解为文件夹
+     * @param downloadBasePath 下载到本地的基础路径
+     * @throws IOException IOException
+     */
+    void downloadFolder(String bucketName, String objectPrefix, String downloadBasePath) throws IOException;
 }

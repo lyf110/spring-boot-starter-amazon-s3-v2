@@ -23,6 +23,7 @@
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <software.amazon.awssdk.s3.version>2.20.74</software.amazon.awssdk.s3.version>
         <hutool-all.version>5.8.18</hutool-all.version>
+        <commons-io.version>2.11.0</commons-io.version>
     </properties>
 
 
@@ -68,6 +69,13 @@
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
         </dependency>
+
+        <dependency>
+            <groupId>commons-io</groupId>
+            <artifactId>commons-io</artifactId>
+            <version>${commons-io.version}</version>
+        </dependency>
+
 
     </dependencies>
 

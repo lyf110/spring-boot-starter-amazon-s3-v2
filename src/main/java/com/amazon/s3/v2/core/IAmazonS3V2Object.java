@@ -1,6 +1,7 @@
 package com.amazon.s3.v2.core;
 
 import org.springframework.web.multipart.MultipartFile;
+import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.*;
@@ -209,6 +210,14 @@ public interface IAmazonS3V2Object {
      */
     Optional<List<S3Object>> listObjects(String bucketName);
 
+    /**
+     * 查询指定桶指定目录下的所有对象
+     *
+     * @param bucketName 桶对象
+     * @return 桶中的所有对象
+     */
+    Optional<List<S3Object>> listObjects(String bucketName, String objectPrefix);
+
 
     /**
      * 合并对象的方法
@@ -219,9 +228,9 @@ public interface IAmazonS3V2Object {
      * @param s3Objects        需要合并的分片对象
      */
     Optional<CompleteMultipartUploadResponse> composeObject(String originBucketName,
-                       String destBucketName,
-                       String destObjectName,
-                       List<S3Object> s3Objects);
+                                                            String destBucketName,
+                                                            String destObjectName,
+                                                            List<S3Object> s3Objects);
 
 
     /**
@@ -232,6 +241,17 @@ public interface IAmazonS3V2Object {
      * @param destObjectName   需要合并对象的名称
      */
     Optional<CompleteMultipartUploadResponse> composeObject(String originBucketName,
-                       String destBucketName,
-                       String destObjectName);
+                                                            String destBucketName,
+                                                            String destObjectName);
+
+
+    /**
+     * 获取对象的输出流
+     *
+     * @param bucketName 对象所在的桶
+     * @param objectName 对象在桶中的名称
+     * @throws IOException IOException
+     */
+    Optional<ResponseInputStream<GetObjectResponse>> getObject(String bucketName, String objectName) throws IOException;
+
 }

@@ -30,10 +30,11 @@ public interface IAmazonS3V2Bucket {
      * 创建一个桶对象
      *
      * @param bucketName 存储的桶名
+     *                   需要注意的是腾讯云的bucket命名是按照如下格式的
+     *                   《bucket-appleId》ex: my-test-bucket-12321321123
      * @return 桶对象
      */
     Optional<CreateBucketResponse> createBucket(String bucketName);
-
 
     /**
      * 根据桶的名称获取桶对象

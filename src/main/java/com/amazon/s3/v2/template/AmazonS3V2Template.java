@@ -1,15 +1,22 @@
 package com.amazon.s3.v2.template;
 
 import cn.hutool.core.collection.CollectionUtil;
+import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.lang.Assert;
 import cn.hutool.core.lang.UUID;
 import cn.hutool.core.util.StrUtil;
 import com.amazon.s3.v2.config.S3V2Base;
+import com.amazon.s3.v2.constant.BusinessV2Constant;
 import com.amazon.s3.v2.core.IAmazonS3V2Template;
 import com.amazon.s3.v2.core.MultipartUploadBiFunction;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.io.FileUtils;
+import org.apache.commons.io.IOUtils;
 import org.springframework.web.multipart.MultipartFile;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.awscore.AwsRequestOverrideConfiguration;
 import software.amazon.awssdk.awscore.exception.AwsServiceException;
+import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.http.HttpStatusFamily;
@@ -42,6 +49,7 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
      */
     private static final int DEFAULT_SLICE_SIZE = 5 * 1024 * 1024;
     public static final long MIN_UPLOAD_SIZE = 0L;
+    public static final int MAX_SINGLETON_SIZE = (int) (0.8 * MAX_UPLOAD_SIZE);
 
     private final S3Client s3Client;
     private final S3Presigner s3Presigner;
@@ -153,25 +161,30 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
                                                  RequestBody requestBody) throws S3Exception, IOException {
         bucketName = handlerBucketName(bucketName);
         Assert.notEmpty(objectName, "object name not empty");
-        Assert.notEmpty(contentType, "contentType not empty");
         Assert.notNull(requestBody, "requestBody not empty");
 
 
         // 这里需要增加关流的操作，PutObject方法是不会自动关流的
 
-        PutObjectResponse putObjectResponse = s3Client.putObject(PutObjectRequest.builder()
-                        .bucket(bucketName)
-                        .contentType(contentType)
-                        .key(objectName)
-                        .build(),
-                requestBody);
+        PutObjectRequest.Builder builder = PutObjectRequest.builder()
+                .bucket(bucketName)
+                .key(objectName);
+
+        if (StrUtil.isNotEmpty(contentType)) {
+            builder.contentType(contentType);
+        }
+
+
+        PutObjectResponse putObjectResponse = s3Client.putObject(builder.build(), requestBody);
         return Optional.of(putObjectResponse);
     }
 
     /**
-     * 创建一个桶对象
+     * 创建一个桶对象, 针对腾讯云的适配，腾讯云需要传入AppId
      *
      * @param bucketName 存储的桶名
+     *                   需要注意的是腾讯云的bucket命名是按照如下格式的
+     *                   《bucket-appleId》ex: my-test-bucket-12321321123
      * @return 桶对象
      */
     @Override
@@ -567,6 +580,20 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
         }
 
         StringBuilder stringBuilder = new StringBuilder();
+        stringBuilder.append(getUploadObjectNamePrefix(baseDir));
+        stringBuilder.append(FILENAME_LINK);
+        stringBuilder.append(objectName);
+        return stringBuilder.toString();
+    }
+
+    @Override
+    public String getUploadObjectNamePrefix() {
+        return getUploadObjectNamePrefix(DEFAULT_UPLOAD_BASE_DIR);
+    }
+
+    @Override
+    public String getUploadObjectNamePrefix(String baseDir) {
+        StringBuilder stringBuilder = new StringBuilder();
         if (StrUtil.isEmpty(baseDir)) {
             baseDir = DEFAULT_UPLOAD_BASE_DIR;
         }
@@ -576,8 +603,6 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
         stringBuilder.append(LocalDateTime.now().format(FILE_NAME_PATTERN));
         stringBuilder.append(FILE_SEPARATOR);
         stringBuilder.append(UUID.randomUUID().toString(true));
-        stringBuilder.append(FILENAME_LINK);
-        stringBuilder.append(objectName);
         return stringBuilder.toString();
     }
 
@@ -1013,6 +1038,54 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
         }
     }
 
+    @Override
+    public Optional<ResponseInputStream<GetObjectResponse>> getObject(String bucketName, String objectName) throws IOException {
+        bucketName = handlerBucketName(bucketName);
+        Assert.notEmpty(objectName, "objectName not empty");
+        objectName = objectName.replace("\\", FILE_SEPARATOR);
+
+        try {
+            ResponseInputStream<GetObjectResponse> responseInputStream = s3Client.getObject(GetObjectRequest.builder().bucket(bucketName).key(objectName).build());
+            return Optional.of(responseInputStream);
+        } catch (AwsServiceException | SdkClientException e) {
+            e.printStackTrace();
+            return Optional.empty();
+        }
+    }
+
+    @Override
+    public void download(String bucketName, String objectName, String downloadBasePath) throws IOException {
+        Assert.notEmpty(downloadBasePath, "downloadBasePath not empty");
+        Optional<ResponseInputStream<GetObjectResponse>> responseInputStreamOptional = getObject(bucketName, objectName);
+        if (!responseInputStreamOptional.isPresent()) {
+            log.warn("bucket {} object {} not exists, not need download", bucketName, objectName);
+            return;
+        }
+
+
+        if (!downloadBasePath.endsWith("\\") && !downloadBasePath.endsWith(FILE_SEPARATOR)) {
+            downloadBasePath = downloadBasePath + FILE_SEPARATOR;
+        }
+
+        String downloadFilePath = downloadBasePath + objectName.substring(objectName.lastIndexOf(FILE_SEPARATOR) + 1);
+        File file = new File(downloadFilePath);
+
+        if (file.exists()) {
+            log.info("{} already exists, no need to download", downloadFilePath);
+            return;
+        }
+
+        if (!file.getParentFile().exists()) {
+            file.getParentFile().mkdirs();
+        }
+        try (BufferedInputStream bufferedInputStream = new BufferedInputStream(responseInputStreamOptional.get());
+             BufferedOutputStream bufferedOutputStream = new BufferedOutputStream(new FileOutputStream(file))
+        ) {
+            IOUtils.copy(bufferedInputStream, bufferedOutputStream);
+            log.info("{} download success", downloadFilePath);
+        }
+    }
+
 
     /**
      * 获取预签名的上传URL
@@ -1066,10 +1139,16 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
      * @return 桶中的所有对象
      */
     @Override
-    public Optional<List<S3Object>> listObjects(String bucketName) {
+    public Optional<List<S3Object>> listObjects(String bucketName, String objectPrefix) {
         bucketName = handlerBucketName(bucketName);
-        ListObjectsV2Request listObjectsV2Request = ListObjectsV2Request.builder().bucket(bucketName).build();
+        ListObjectsV2Request.Builder builder = ListObjectsV2Request.builder().bucket(bucketName);
 
+        // 设置需要查询的文件夹
+        if (StrUtil.isNotEmpty(objectPrefix)) {
+            builder.prefix(objectPrefix);
+        }
+
+        ListObjectsV2Request listObjectsV2Request = builder.build();
         List<S3Object> s3ObjectList = null;
         try {
             ListObjectsV2Response listObjectsV2Response;
@@ -1085,6 +1164,17 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
         }
     }
 
+    /**
+     * 查询桶的所有对象
+     *
+     * @param bucketName 桶对象
+     * @return 桶中的所有对象
+     */
+    @Override
+    public Optional<List<S3Object>> listObjects(String bucketName) {
+        return listObjects(bucketName, null);
+    }
+
 
     /**
      * 合并对象的方法
@@ -1094,12 +1184,36 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
      * @param destObjectName   需要合并对象的名称
      * @param s3Objects        需要合并的分片对象
      */
-    public Optional<CompleteMultipartUploadResponse> composeObject(String originBucketName, String destBucketName, String destObjectName, List<S3Object> s3Objects) {
+    public Optional<CompleteMultipartUploadResponse> composeObject(String originBucketName,
+                                                                   String destBucketName,
+                                                                   String destObjectName,
+                                                                   List<S3Object> s3Objects) {
         // 参数校验
         Assert.notEmpty(originBucketName, "originBucketName not empty");
         Assert.notEmpty(destBucketName, "destBucketName not empty");
         Assert.notEmpty(destObjectName, "destObjectName not empty");
         Assert.notEmpty(s3Objects, "s3Objects not empty");
+
+        // 新增一个判断，如果需要复制的对象只有一个的话，那我们就调用copyObject()进行复制
+        if (s3Objects.size() == SINGLETON_LIST_SIZE) {
+            Optional<CopyObjectResponse> copyObjectResponseOptional = copyObject(originBucketName, s3Objects.get(0).key(), destBucketName, destObjectName);
+            if (!copyObjectResponseOptional.isPresent()) {
+                return Optional.empty();
+            }
+
+            CopyObjectResponse copyObjectResponse = copyObjectResponseOptional.get();
+            CompleteMultipartUploadResponse completeMultipartUploadResponse = CompleteMultipartUploadResponse.builder()
+                    .bucket(destBucketName)
+                    .key(destObjectName)
+                    .expiration(copyObjectResponse.expiration())
+                    .serverSideEncryption(copyObjectResponse.serverSideEncryption())
+                    .versionId(copyObjectResponse.versionId())
+                    .ssekmsKeyId(copyObjectResponse.ssekmsKeyId())
+                    .bucketKeyEnabled(copyObjectResponse.bucketKeyEnabled())
+                    .requestCharged(copyObjectResponse.requestCharged())
+                    .build();
+            return Optional.of(completeMultipartUploadResponse);
+        }
 
         // 对传入的对象集进行排序
         List<S3Object> s3ObjectList = s3Objects
@@ -1143,5 +1257,114 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
 
         List<S3Object> s3ObjectList = optionalS3ObjectList.get();
         return composeObject(originBucketName, destBucketName, destObjectName, s3ObjectList);
+    }
+
+
+    public void uploadFolder(String bucketName, String baseFolder) throws IOException {
+        bucketName = handlerBucketName(bucketName);
+        Assert.notEmpty(baseFolder, "baseFolder not empty");
+        // 上传文件需要保持文件的目录结构
+        File parentFile = new File(baseFolder);
+        if (!parentFile.exists()) {
+            throw new IllegalArgumentException(baseFolder + ", not exists");
+        }
+
+        if (parentFile.isFile()) {
+
+
+        } else {
+            // 此时才是目录拷贝
+            Collection<File> fileList = FileUtils.listFiles(parentFile, null, true);
+            if (CollectionUtil.isEmpty(fileList)) {
+
+                // 无文件，无需上传
+                return;
+            }
+
+            String parentPath = parentFile.getCanonicalPath().replace(File.separator, FILE_SEPARATOR);
+            // 这里执行真正的上传逻辑
+            String objectName;
+            String objectPrefix = getUploadObjectNamePrefix();
+            for (File tmpFile : fileList) {
+                // 这里采用单文件直接上传
+                objectName = objectPrefix + FILE_SEPARATOR + tmpFile.getCanonicalPath()
+                        .replace(File.separator, FILE_SEPARATOR)
+                        .replace(parentPath, parentFile.getName());
+
+
+                log.info("objectName: {}", objectName);
+                if (tmpFile.length() < MAX_SINGLETON_SIZE) {
+                    System.out.println(putObject(bucketName, objectName, null, RequestBody.fromFile(tmpFile)));
+                } else {
+                    // 采用分段上传
+                    System.out.println(multipartUpload(bucketName, objectName, tmpFile));
+                }
+            }
+        }
+
+
+    }
+
+
+    /**
+     * 下载文件夹
+     *
+     * @param bucketName       桶名称
+     * @param objectPrefix     对象前缀，也可以理解为文件夹
+     * @param downloadBasePath 下载到本地的基础路径
+     * @throws IOException IOException
+     */
+    @Override
+    public void downloadFolder(String bucketName, String objectPrefix, String downloadBasePath) throws IOException {
+        bucketName = handlerBucketName(bucketName);
+        ListObjectsV2Request.Builder builder = ListObjectsV2Request.builder().bucket(bucketName);
+        Assert.notEmpty(downloadBasePath, "downloadBasePath not empty");
+
+        String replacePrefix = null;
+        if (StrUtil.isNotEmpty(objectPrefix)) {
+            objectPrefix = objectPrefix.replace("\\", "/");
+            replacePrefix = objectPrefix.substring(0, objectPrefix.lastIndexOf("/"));
+            builder.prefix(objectPrefix);
+        }
+
+        ListObjectsV2Response listObjectsV2Response = s3Client.listObjectsV2(builder.build());
+        List<S3Object> contents = listObjectsV2Response.contents();
+        if (CollectionUtil.isEmpty(contents)) {
+            log.info("bucket {}, object prefix {} is empty, not need download", bucketName, objectPrefix);
+            return;
+        }
+
+
+        if (!downloadBasePath.endsWith("\\") && !downloadBasePath.endsWith(FILE_SEPARATOR)) {
+            downloadBasePath = downloadBasePath + FILE_SEPARATOR;
+        }
+
+        File file = null;
+        for (S3Object content : contents) {
+            GetObjectRequest getObjectRequest = GetObjectRequest.builder()
+                    .bucket(bucketName)
+                    .key(content.key())
+                    .build();
+
+            if (StrUtil.isNotEmpty(replacePrefix)) {
+                file = new File(downloadBasePath + content.key().replace(replacePrefix, ""));
+            } else {
+                file = new File(downloadBasePath + content.key());
+            }
+
+
+            if (!file.getParentFile().exists()) {
+                // 创建父目录
+                file.getParentFile().mkdirs();
+            }
+
+
+            try (ResponseInputStream<GetObjectResponse> responseInputStream = s3Client.getObject(getObjectRequest);
+                 BufferedOutputStream bos = new BufferedOutputStream(new FileOutputStream(file))
+            ) {
+                IOUtils.copy(responseInputStream, bos);
+                log.info("{} download success", file.getCanonicalPath());
+            }
+        }
     }
 }
