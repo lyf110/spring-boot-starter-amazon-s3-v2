@@ -1,25 +1,23 @@
 package com.amazon.s3.v2.template;
 
 import cn.hutool.core.collection.CollectionUtil;
-import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.lang.Assert;
 import cn.hutool.core.lang.UUID;
 import cn.hutool.core.util.StrUtil;
 import com.amazon.s3.v2.config.S3V2Base;
 import com.amazon.s3.v2.constant.BusinessV2Constant;
 import com.amazon.s3.v2.core.IAmazonS3V2Template;
-import com.amazon.s3.v2.core.MultipartUploadBiFunction;
+import com.amazon.s3.v2.core.functions.MultipartUploadBiFunction;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
 import org.springframework.web.multipart.MultipartFile;
-import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
-import software.amazon.awssdk.awscore.AwsRequestOverrideConfiguration;
 import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.http.HttpStatusFamily;
+import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.*;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
@@ -27,8 +25,12 @@ import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignReques
 import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
+import software.amazon.awssdk.transfer.s3.S3TransferManager;
+import software.amazon.awssdk.transfer.s3.model.*;
+import software.amazon.awssdk.transfer.s3.progress.LoggingTransferListener;
 
 import java.io.*;
+import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -52,19 +54,26 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
     public static final int MAX_SINGLETON_SIZE = (int) (0.8 * MAX_UPLOAD_SIZE);
 
     private final S3Client s3Client;
+    private final S3AsyncClient s3AsyncClient;
+    private S3TransferManager s3TransferManager;
     private final S3Presigner s3Presigner;
     private final S3V2Base s3V2Base;
 
 
-    public AmazonS3V2Template(S3Client s3Client, S3Presigner s3Presigner, S3V2Base s3V2Base) {
+    public AmazonS3V2Template(S3Client s3Client, S3AsyncClient s3AsyncClient, S3TransferManager s3TransferManager, S3Presigner s3Presigner, S3V2Base s3V2Base) {
         this.s3Client = s3Client;
+        this.s3AsyncClient = s3AsyncClient;
+        this.s3TransferManager = s3TransferManager;
         this.s3Presigner = s3Presigner;
         this.s3V2Base = s3V2Base;
+
+        // 这里增加一个操作，创建默认存储桶的操作
+        createBucket(s3V2Base.getBucket());
     }
 
     @Override
     public String getDefaultBucket() {
-        return s3V2Base.getBucket();
+        return handlerBucketName(s3V2Base.getBucket());
     }
 
     /**
@@ -431,6 +440,7 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
     @Deprecated
     @Override
     public void deleteVersions(String bucketName) {
+        bucketName = handlerBucketName(bucketName);
         ListObjectVersionsRequest listObjectVersionsRequest = ListObjectVersionsRequest.builder().bucket(bucketName).build();
         ListObjectVersionsResponse listObjectVersionsResponse;
         do {
@@ -471,6 +481,7 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
      */
     @Override
     public void deleteVersionsV2(String bucketName) {
+        bucketName = handlerBucketName(bucketName);
         ListObjectVersionsRequest listObjectVersionsRequest = ListObjectVersionsRequest.builder().bucket(bucketName).build();
         ListObjectVersionsResponse listObjectVersionsResponse;
         do {
@@ -536,14 +547,35 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
         // 非空校验
         Assert.notEmpty(bucketName, "bucket name is not empty");
 
+        String toLowerCaseBucketName = bucketName.toLowerCase(Locale.ENGLISH);
+        // 如果是腾讯COS的话，需要手动封装AppleID
+
+        if (s3V2Base.isTencentCos()) {
+            String appleId = s3V2Base.getAppleId();
+            Assert.notEmpty(appleId, "Tencent cloud COS object storage must provide apple Id");
+
+            return toLowerCaseBucketName.endsWith(BusinessV2Constant.FILENAME_LINK + appleId) ?
+                    toLowerCaseBucketName : toLowerCaseBucketName + FILENAME_LINK + appleId;
+        }
+
         // 返回处理过的桶名称
-        return bucketName.toLowerCase(Locale.ENGLISH);
+        return toLowerCaseBucketName;
     }
 
 
     @Override
     public S3Client getS3Client() {
         return s3Client;
+    }
+
+    @Override
+    public S3AsyncClient getS3AsyncClient() {
+        return s3AsyncClient;
+    }
+
+    @Override
+    public S3TransferManager getS3TransferManager() {
+        return s3TransferManager;
     }
 
     @Override
@@ -632,6 +664,9 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
         Assert.notEmpty(srcObjectName, "srcObjectName not empty");
         Assert.notEmpty(destBucketName, "destBucketName not empty");
         Assert.notEmpty(destObjectName, "destObjectName not empty");
+
+        srcBucketName = handlerBucketName(srcBucketName);
+        destBucketName = handlerBucketName(destBucketName);
 
         try {
             return Optional.ofNullable(s3Client.copyObject(CopyObjectRequest.builder()
@@ -1054,7 +1089,7 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
     }
 
     @Override
-    public void download(String bucketName, String objectName, String downloadBasePath) throws IOException {
+    public void downloadFile(String bucketName, String objectName, String downloadBasePath) throws IOException {
         Assert.notEmpty(downloadBasePath, "downloadBasePath not empty");
         Optional<ResponseInputStream<GetObjectResponse>> responseInputStreamOptional = getObject(bucketName, objectName);
         if (!responseInputStreamOptional.isPresent()) {
@@ -1096,7 +1131,11 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
      * @param signatureTime 预签名put url的过期时间
      * @return 预签名的put url
      */
-    public Optional<PresignedPutObjectRequest> getPresignedPutUrl(String bucketName, String objectName, String contentType, Duration signatureTime) {
+    @Override
+    public Optional<PresignedPutObjectRequest> getPresignedPutUrl(String bucketName,
+                                                                  String objectName,
+                                                                  String contentType,
+                                                                  Duration signatureTime) {
         bucketName = handlerBucketName(bucketName);
         Assert.notEmpty(objectName, "object name not empty");
         Assert.notEmpty(contentType, "contentType not empty");
@@ -1194,6 +1233,10 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
         Assert.notEmpty(destObjectName, "destObjectName not empty");
         Assert.notEmpty(s3Objects, "s3Objects not empty");
 
+        originBucketName = handlerBucketName(originBucketName);
+        destBucketName = handlerBucketName(destBucketName);
+
+
         // 新增一个判断，如果需要复制的对象只有一个的话，那我们就调用copyObject()进行复制
         if (s3Objects.size() == SINGLETON_LIST_SIZE) {
             Optional<CopyObjectResponse> copyObjectResponseOptional = copyObject(originBucketName, s3Objects.get(0).key(), destBucketName, destObjectName);
@@ -1221,15 +1264,17 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
                 .sorted(Comparator.comparingInt(o -> Integer.parseInt(o.key())))
                 .collect(Collectors.toList());
 
+        String finalOriginBucketName = originBucketName;
+        String finalDestBucketName = destBucketName;
         return multipartUpload(destBucketName, destObjectName, s3ObjectList, s3Objects1 -> CollectionUtil.isNotEmpty(s3ObjectList),
                 (targetObj, newBucketName, newObjectName, uploadId) ->
                         targetObj.stream().map(s3Object ->
                                 CompletedPart.builder()
                                         .partNumber(Integer.parseInt(s3Object.key()))
                                         .eTag(s3Client.uploadPartCopy(UploadPartCopyRequest.builder()
-                                                .sourceBucket(originBucketName)
+                                                .sourceBucket(finalOriginBucketName)
                                                 .sourceKey(s3Object.key())
-                                                .destinationBucket(destBucketName)
+                                                .destinationBucket(finalDestBucketName)
                                                 .destinationKey(destObjectName)
                                                 .uploadId(uploadId)
                                                 .partNumber(Integer.parseInt(s3Object.key()))
@@ -1315,7 +1360,7 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
      * @throws IOException IOException
      */
     @Override
-    public void downloadFolder(String bucketName, String objectPrefix, String downloadBasePath) throws IOException {
+    public void downloadDirectory(String bucketName, String objectPrefix, String downloadBasePath) throws IOException {
         bucketName = handlerBucketName(bucketName);
         ListObjectsV2Request.Builder builder = ListObjectsV2Request.builder().bucket(bucketName);
         Assert.notEmpty(downloadBasePath, "downloadBasePath not empty");
@@ -1366,5 +1411,443 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
                 log.info("{} download success", file.getCanonicalPath());
             }
         }
+    }
+
+
+    /**
+     * 上传目录
+     *
+     * @param sourceDirectory 需要上传的目录
+     * @param bucketName      需要上传到的桶
+     * @return 上传失败的文件数
+     */
+    @Override
+    public Integer asyncUploadDirectory(String sourceDirectory, String bucketName) {
+        return asyncUploadDirectory(s3TransferManager, sourceDirectory, bucketName);
+    }
+
+    /**
+     * 上传目录
+     *
+     * @param sourceDirectory     需要上传的目录
+     * @param bucketName          需要上传到的桶
+     * @param destDirectoryPrefix 在桶中存储的目录
+     * @return 上传失败的文件数
+     */
+    @Override
+    public Integer asyncUploadDirectory(String sourceDirectory, String bucketName, String destDirectoryPrefix) {
+        return asyncUploadDirectory(s3TransferManager, sourceDirectory, bucketName, destDirectoryPrefix);
+    }
+
+    /**
+     * 上传目录
+     *
+     * @param transferManager 基于S3AsyncClient构建的文件上传下载管理器
+     * @param sourceDirectory 需要上传的目录
+     * @param bucketName      需要上传到的桶
+     * @return 上传失败的文件数
+     */
+    @Override
+    public Integer asyncUploadDirectory(S3TransferManager transferManager,
+                                        String sourceDirectory, String bucketName) {
+        bucketName = handlerBucketName(bucketName);
+        return asyncUploadDirectory(transferManager, sourceDirectory, bucketName, null);
+    }
+
+    /**
+     * 上传目录
+     *
+     * @param transferManager     基于S3AsyncClient构建的文件上传下载管理器
+     * @param sourceDirectory     需要上传的目录
+     * @param bucketName          需要上传到的桶
+     * @param destDirectoryPrefix 在桶中存储的目录
+     * @return 上传失败的文件数
+     */
+    @Override
+    public Integer asyncUploadDirectory(S3TransferManager transferManager, String sourceDirectory, String bucketName, String destDirectoryPrefix) {
+        Assert.notEmpty(sourceDirectory, "sourceDirectory not empty");
+        Assert.notNull(transferManager, "transferManager not null");
+        bucketName = handlerBucketName(bucketName);
+
+        UploadDirectoryRequest.Builder builder = UploadDirectoryRequest.builder()
+                .source(Paths.get(sourceDirectory))
+                .bucket(bucketName);
+
+        if (StrUtil.isNotEmpty(destDirectoryPrefix)) {
+            // 设置文件上传到桶中目录
+            builder.s3Prefix(destDirectoryPrefix);
+        }
+
+        return asyncUploadDirectory(transferManager, builder.build());
+
+    }
+
+    @Override
+    public Integer asyncUploadDirectory(UploadDirectoryRequest uploadDirectoryRequest) {
+        return asyncUploadDirectory(s3TransferManager, uploadDirectoryRequest);
+    }
+
+
+    /**
+     * 上传目录
+     *
+     * @param transferManager        基于S3AsyncClient构建的文件上传下载管理器
+     * @param uploadDirectoryRequest 目录上传参数构建
+     * @return 上传失败的文件数
+     */
+    @Override
+    public Integer asyncUploadDirectory(S3TransferManager transferManager,
+                                        UploadDirectoryRequest uploadDirectoryRequest) {
+        Assert.notNull(transferManager, "transferManager not null");
+        Assert.notNull(uploadDirectoryRequest, "uploadDirectoryRequest not null");
+
+        DirectoryUpload directoryUpload = transferManager.uploadDirectory(uploadDirectoryRequest);
+
+        return asyncDirectoryTransfers(directoryUpload);
+    }
+
+    /**
+     * 目录下载
+     *
+     * @param transferManager          文件传输对象
+     * @param downloadDirectoryRequest 目录下载请求
+     * @return 下载失败的文件数量
+     */
+    @Override
+    public Integer asyncDownloadDirectory(S3TransferManager transferManager,
+                                          DownloadDirectoryRequest downloadDirectoryRequest) {
+        Assert.notNull(transferManager, "transferManager not null");
+        Assert.notNull(downloadDirectoryRequest, "downloadDirectoryRequest not null");
+
+        DirectoryDownload directoryDownload = transferManager.downloadDirectory(downloadDirectoryRequest);
+
+        return asyncDirectoryTransfers(directoryDownload);
+    }
+
+    /**
+     * 异步下载文件夹, 使用默认的存储桶
+     *
+     * @param saveDirectory 文件下载保存到本地的路径
+     * @param objectPrefix  所需要下载的桶中的目录
+     * @return 文件下载失败的个数，为0时表示全部下载成功
+     */
+    @Override
+    public Integer asyncDownloadDirectory(String saveDirectory, String objectPrefix) {
+        return asyncDownloadDirectory(getDefaultBucket(), saveDirectory, objectPrefix);
+    }
+
+
+    /**
+     * 异步下载文件夹
+     *
+     * @param bucketName    存储的桶名
+     * @param saveDirectory 文件下载保存到本地的路径
+     * @param objectPrefix  所需要下载的桶中的目录
+     * @return 文件下载失败的个数，为0时表示全部下载成功
+     */
+    @Override
+    public Integer asyncDownloadDirectory(String bucketName, String saveDirectory, String objectPrefix) {
+        return asyncDownloadDirectory(s3TransferManager, bucketName, saveDirectory, objectPrefix);
+    }
+
+    /**
+     * 异步下载文件夹, 使用默认的存储桶
+     *
+     * @param transferManager 文件传输管理对象
+     * @param saveDirectory   文件下载保存到本地的路径
+     * @param objectPrefix    所需要下载的桶中的目录
+     * @return 文件下载失败的个数，为0时表示全部下载成功
+     */
+    @Override
+    public Integer asyncDownloadDirectory(S3TransferManager transferManager, String saveDirectory, String objectPrefix) {
+        return asyncDownloadDirectory(transferManager, getDefaultBucket(), saveDirectory, objectPrefix);
+    }
+
+    /**
+     * 异步下载文件夹
+     *
+     * @param transferManager 文件传输管理对象
+     * @param bucketName      存储的桶名
+     * @param saveDirectory   文件下载保存到本地的路径
+     * @param objectPrefix    所需要下载的桶中的目录
+     * @return 文件下载失败的个数，为0时表示全部下载成功
+     */
+    @Override
+    public Integer asyncDownloadDirectory(S3TransferManager transferManager,
+                                          String bucketName,
+                                          String saveDirectory,
+                                          String objectPrefix) {
+        final String finalBucketName = handlerBucketName(bucketName);
+        final String finalObjectPrefix = objectPrefix;
+        Assert.notEmpty(saveDirectory, "save to local, the saveDirectory not empty");
+        File file = new File(saveDirectory);
+        if (file.isFile()) {
+            throw new IllegalArgumentException(String.format("%s is not directory", saveDirectory));
+        }
+
+        if (!file.exists()) {
+            // 创建目录
+            boolean createDirectorySuccess = file.mkdirs();
+            if (!createDirectorySuccess) {
+                throw new IllegalArgumentException(String.format("create directory [ %s ] failed", saveDirectory));
+            }
+        }
+
+        return asyncDownloadDirectory(transferManager,
+                DownloadDirectoryRequest.builder()
+                        .bucket(bucketName)
+                        .destination(file.toPath())
+                        .listObjectsV2RequestTransformer(builder ->
+                                builder.bucket(finalBucketName).prefix(finalObjectPrefix).build())
+                        .build());
+    }
+
+
+    /**
+     * 最底层的异步文件传输封装方法
+     *
+     * @param directoryTransfer 文件传输对象
+     * @return 失败传输的文件数量
+     */
+    private Integer asyncDirectoryTransfers(DirectoryTransfer directoryTransfer) {
+        Assert.notNull(directoryTransfer, "directoryTransfer not null");
+        CompletedTransfer completedTransfer = directoryTransfer.completionFuture().join();
+        assert completedTransfer instanceof CompletedDirectoryTransfer;
+        CompletedDirectoryTransfer completedDirectoryTransfer = (CompletedDirectoryTransfer) completedTransfer;
+        completedDirectoryTransfer.failedTransfers().forEach(fail ->
+                log.warn("Object [{}] failed to transfer", fail.toString()));
+
+        return completedDirectoryTransfer.failedTransfers().size();
+    }
+
+    /**
+     * 下载单个文件
+     *
+     * @param objectName 所需要下载的对象名
+     * @param savePaths  文件下载保存到本地的路径
+     * @return 下载的文件大小
+     */
+    @Override
+    public Long asyncDownloadFile(String objectName, String savePaths) {
+        return asyncDownloadFile(s3TransferManager, objectName, savePaths);
+    }
+
+    /**
+     * 下载单个文件
+     *
+     * @param transferManager 文件传输管理器
+     * @param objectName      所需要下载的对象名
+     * @param savePaths       文件下载保存到本地的路径
+     * @return 下载的文件大小
+     */
+    @Override
+    public Long asyncDownloadFile(S3TransferManager transferManager, String objectName, String savePaths) {
+        return asyncDownloadFile(transferManager, getDefaultBucket(), objectName, savePaths);
+    }
+
+    /**
+     * 下载单个文件
+     *
+     * @param bucketName 文件所在的桶名
+     * @param objectName 所需要下载的对象名
+     * @param savePaths  文件下载保存到本地的路径
+     * @return 下载的文件大小
+     */
+    @Override
+    public Long asyncDownloadFile(String bucketName, String objectName, String savePaths) {
+        return asyncDownloadFile(s3TransferManager, bucketName, objectName, savePaths);
+    }
+
+
+    /**
+     * 下载单个文件
+     *
+     * @param transferManager 文件传输管理器
+     * @param bucketName      文件所在的桶名
+     * @param objectName      所需要下载的对象名
+     * @param savePaths       文件下载保存到本地的路径
+     * @return 下载的文件大小
+     */
+    @Override
+    public Long asyncDownloadFile(S3TransferManager transferManager,
+                                  String bucketName,
+                                  String objectName,
+                                  String savePaths) {
+        bucketName = handlerBucketName(bucketName);
+        Assert.notEmpty(objectName, "objectName not empty");
+        Assert.notEmpty(savePaths, "download file, the savePaths not empty");
+        if (transferManager == null) {
+            transferManager = s3TransferManager;
+        }
+
+        String saveName = savePaths + FILE_SEPARATOR + objectName.substring(objectName.lastIndexOf(FILE_SEPARATOR) + 1);
+
+        // 文件下载
+        DownloadFileRequest downloadFileRequest =
+                DownloadFileRequest.builder()
+                        .getObjectRequest(GetObjectRequest.builder().bucket(bucketName).key(objectName).build())
+                        .addTransferListener(LoggingTransferListener.create())
+                        .destination(Paths.get(saveName))
+                        .build();
+
+        FileDownload downloadFile = transferManager.downloadFile(downloadFileRequest);
+
+        CompletedFileDownload downloadResult = downloadFile.completionFuture().join();
+        log.info("object name [{}] Content length [{}]", objectName, downloadResult.response().contentLength());
+        return downloadResult.response().contentLength();
+    }
+
+
+    /**
+     * 异步上传单个文件
+     *
+     * @param objectName     文件上传到桶保存的名称
+     * @param uploadFilePath 所需上传文件的路径
+     * @return 上传成功后的eTag
+     */
+    @Override
+    public String asyncUploadFile(String objectName, String uploadFilePath) {
+        return asyncUploadFile(getDefaultBucket(), objectName, uploadFilePath);
+    }
+
+    /**
+     * 异步上传单个文件
+     *
+     * @param bucketName     文件上传到的桶名
+     * @param objectName     文件上传到桶保存的名称
+     * @param uploadFilePath 所需上传文件的路径
+     * @return 上传成功后的eTag
+     */
+    @Override
+    public String asyncUploadFile(String bucketName, String objectName, String uploadFilePath) {
+        return asyncUploadFile(s3TransferManager, bucketName, objectName, uploadFilePath);
+    }
+
+    /**
+     * 异步上传单个文件
+     *
+     * @param transferManager 文件传输管理对象
+     * @param objectName      文件上传到桶保存的名称
+     * @param uploadFilePath  所需上传文件的路径
+     * @return 上传成功后的eTag
+     */
+    @Override
+    public String asyncUploadFile(S3TransferManager transferManager, String objectName, String uploadFilePath) {
+        return asyncUploadFile(transferManager, getDefaultBucket(), objectName, uploadFilePath);
+    }
+
+
+    /**
+     * 异步上传单个文件
+     *
+     * @param transferManager 文件传输管理对象
+     * @param bucketName      文件上传到的桶名
+     * @param objectName      文件上传到桶保存的名称
+     * @param uploadFilePath  所需上传文件的路径
+     * @return 上传成功后的eTag
+     */
+    @Override
+    public String asyncUploadFile(S3TransferManager transferManager,
+                                  String bucketName,
+                                  String objectName,
+                                  String uploadFilePath) {
+        String finalBucketName = handlerBucketName(bucketName);
+        Assert.notEmpty(objectName, "objectName not empty");
+        Assert.notEmpty(uploadFilePath, "uploadFilePath not empty");
+        if (transferManager == null) {
+            transferManager = s3TransferManager;
+        }
+
+        File file = FileUtils.getFile(uploadFilePath);
+        if (FileUtils.isDirectory(file)) {
+            throw new IllegalArgumentException(String.format("uploadFilePath [%s] is Directory, not file", uploadFilePath));
+        }
+
+        UploadFileRequest uploadFileRequest =
+                UploadFileRequest.builder()
+                        .putObjectRequest(PutObjectRequest.builder().bucket(finalBucketName).key(objectName).build())
+                        .addTransferListener(LoggingTransferListener.create())
+                        .source(file.toPath())
+                        .build();
+
+        FileUpload fileUpload = transferManager.uploadFile(uploadFileRequest);
+
+        CompletedFileUpload uploadResult = fileUpload.completionFuture().join();
+        log.info("object name [{}] eTag [{}]", objectName, uploadResult.response().eTag());
+        return uploadResult.response().eTag();
+    }
+
+    /**
+     * 异步拷贝对象, 将对象从一个桶拷贝到另外一个桶
+     *
+     * @param srcBucketName  源对象所在的桶
+     * @param srcObjectName  源对象名称
+     * @param destBucketName 拷贝到的目标桶
+     * @return etag
+     */
+    @Override
+    public String asyncCopyObject(String srcBucketName, String srcObjectName, String destBucketName) {
+        return asyncCopyObject(srcBucketName, srcObjectName, destBucketName, srcObjectName);
+    }
+
+    /**
+     * 异步拷贝对象
+     *
+     * @param srcBucketName  源对象所在的桶
+     * @param srcObjectName  源对象名称
+     * @param destBucketName 拷贝到的目标桶
+     * @param destObjectName 拷贝到目标桶的对象名称
+     * @return etag
+     */
+    @Override
+    public String asyncCopyObject(String srcBucketName, String srcObjectName, String destBucketName, String destObjectName) {
+        return asyncCopyObject(s3TransferManager, srcBucketName, srcObjectName, destBucketName, destObjectName);
+    }
+
+    /**
+     * 异步拷贝对象
+     *
+     * @param transferManager 异步文件传输管理器
+     * @param srcBucketName   源对象所在的桶
+     * @param srcObjectName   源对象名称
+     * @param destBucketName  拷贝到的目标桶
+     * @param destObjectName  拷贝到目标桶的对象名称
+     * @return etag
+     */
+    @Override
+    public String asyncCopyObject(S3TransferManager transferManager,
+                                  String srcBucketName,
+                                  String srcObjectName,
+                                  String destBucketName,
+                                  String destObjectName) {
+        srcBucketName = handlerBucketName(srcBucketName);
+        destBucketName = handlerBucketName(destBucketName);
+        Assert.notNull(transferManager, "transferManager not null");
+        Assert.notEmpty(srcObjectName, "srcObjectName not empty");
+        if (StrUtil.isEmpty(destObjectName)) {
+            destObjectName = srcObjectName;
+        }
+
+
+        CopyObjectRequest copyObjectRequest = CopyObjectRequest.builder()
+                .sourceBucket(srcBucketName)
+                .sourceKey(srcObjectName)
+                .destinationBucket(destBucketName)
+                .destinationKey(destObjectName)
+                .build();
+
+        CopyRequest copyRequest = CopyRequest.builder()
+                .copyObjectRequest(copyObjectRequest)
+                .build();
+
+        Copy copy = transferManager.copy(copyRequest);
+
+        CompletedCopy completedCopy = copy.completionFuture().join();
+        log.info("copy object from bucket [{}] object [{}] to bucket [{}] object [{}] success",
+                srcBucketName,
+                srcObjectName,
+                destBucketName,
+                destObjectName);
+        return completedCopy.response().copyObjectResult().eTag();
     }
 }

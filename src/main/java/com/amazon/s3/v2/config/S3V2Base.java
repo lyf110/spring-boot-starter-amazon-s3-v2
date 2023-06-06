@@ -1,13 +1,15 @@
 package com.amazon.s3.v2.config;
 
+import cn.hutool.core.lang.Assert;
+import com.amazon.s3.v2.constant.BusinessV2Constant;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.stereotype.Component;
 
 import java.io.Serializable;
+import java.util.Locale;
 
 /**
  * @author liuyangfang
@@ -16,7 +18,6 @@ import java.io.Serializable;
  */
 @ConfigurationProperties(value = "amazon.s3.v2.oss")
 @Data
-@Component
 @AllArgsConstructor
 @NoArgsConstructor
 @Builder
@@ -42,6 +43,11 @@ public class S3V2Base implements Serializable {
      * bucketName是你设置的桶的默认桶的名称
      */
     private String bucket;
+
+    /**
+     * 腾讯云COS需要填写AppleID
+     */
+    private String appleId;
 
     /**
      * Bucket域名或者CDN加速域名
@@ -77,4 +83,14 @@ public class S3V2Base implements Serializable {
      * （某些 S3 存储无需配置此选项，如 Cloudflare R2、Oracle 对象存储）
      */
     private boolean autoConfigCors;
+
+    /**
+     * 提供一个方法用来判断是否是腾讯云COS
+     *
+     * @return true: 是腾讯云COS，false则不是
+     */
+    public boolean isTencentCos() {
+        Assert.notEmpty(endPoint, "endPoint not empty");
+        return endPoint.toLowerCase(Locale.ENGLISH).endsWith(BusinessV2Constant.TENCENT_COS_ENDPOINT_SUFFIX);
+    }
 }

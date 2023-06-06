@@ -1,4 +1,4 @@
-package com.amazon.s3.v2.core;
+package com.amazon.s3.v2.core.functions;
 
 /**
  * @author liuyangfang

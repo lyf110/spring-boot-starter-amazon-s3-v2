@@ -1,5 +1,6 @@
 package com.amazon.s3.v2.core;
 
+import com.amazon.s3.v2.core.async.IAmazonS3V2AsyncObject;
 import org.springframework.web.multipart.MultipartFile;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.sync.RequestBody;
@@ -16,7 +17,7 @@ import java.util.Optional;
  * @description 提供Amazon S3 V2版本的Object操作方法接口
  * @since 2023/6/1 16:51:26
  */
-public interface IAmazonS3V2Object {
+public interface IAmazonS3V2Object extends IAmazonS3V2AsyncObject, IAmazonS3V2Upload, IAmazonS3V2Download {
     /**
      * 删除桶的方法，如果桶中存在对象，并且桶还设置了版本的话，那么会先删除桶中的对象还会删除桶的版本
      * 删除动作为逐个删除

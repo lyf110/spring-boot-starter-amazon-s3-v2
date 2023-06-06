@@ -1,19 +1,17 @@
 package com.amazon.s3.v2.core;
 
 import com.amazon.s3.v2.config.S3V2Base;
-import software.amazon.awssdk.core.ResponseInputStream;
-import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.*;
+import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
+import software.amazon.awssdk.transfer.s3.S3TransferManager;
 
-import java.io.File;
-import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
-import java.util.function.Predicate;
 
 /**
  * @author liuyangfang
@@ -27,6 +25,21 @@ public interface IAmazonS3V2Template extends IAmazonS3V2Bucket, IAmazonS3V2Objec
      * @return S3Client
      */
     S3Client getS3Client();
+
+    /**
+     * 获取基于异步构建的S3Client
+     *
+     * @return S3AsyncClient
+     */
+    S3AsyncClient getS3AsyncClient();
+
+
+    /**
+     * 获取基于S3AsyncClient构建的文件传输管理器
+     *
+     * @return S3AsyncClient构建的文件传输管理器
+     */
+    S3TransferManager getS3TransferManager();
 
     /**
      * 获取 S3Presigner
@@ -85,93 +98,6 @@ public interface IAmazonS3V2Template extends IAmazonS3V2Bucket, IAmazonS3V2Objec
      */
     String getUploadObjectNamePrefix(String baseDir);
 
-    /**
-     * 分片上传文件
-     *
-     * @param bucketName 对象桶
-     * @param file       上传的文件对象
-     */
-    Optional<CompleteMultipartUploadResponse> multipartUpload(String bucketName, File file);
-
-
-    /**
-     * 分片上传文件
-     *
-     * @param bucketName 对象桶
-     * @param file       上传的文件对象
-     */
-    Optional<CompleteMultipartUploadResponse> multipartUpload(String bucketName, String objectName, File file);
-
-
-    /**
-     * 分片上传文件
-     *
-     * @param bucketName 对象桶
-     * @param objectName 指定文件的存储名称
-     * @param file       上传的文件对象
-     * @param sliceSize  分片大小
-     */
-    Optional<CompleteMultipartUploadResponse> multipartUpload(String bucketName, String objectName, File file, int sliceSize);
-
-
-    /**
-     * 分片上传文件
-     *
-     * @param bucketName 对象桶
-     * @param file       上传的文件对象
-     * @param sliceSize  分片大小
-     */
-    Optional<CompleteMultipartUploadResponse> multipartUpload(String bucketName, File file, int sliceSize);
-
-    /**
-     * 分片文件上传的底层封装方法
-     *
-     * @param bucketName 桶的名称
-     * @param objectName 对象名称
-     * @param t          这里是需要上传的对象
-     * @param predicate  这里对上传的对象进行参数校验
-     * @param function   这个函数是真正执行上传操作
-     * @param <T>        上传对象的类型
-     * @return CompleteMultipartUploadResponse
-     * @throws S3Exception S3Exception
-     */
-    <T> Optional<CompleteMultipartUploadResponse> multipartUpload(String bucketName,
-                                                                  String objectName,
-                                                                  T t,
-                                                                  Predicate<T> predicate,
-                                                                  MultipartUploadBiFunction<T, List<CompletedPart>> function)
-            throws S3Exception;
-
-    /**
-     * 上传分片文件, 不支持上传大文件RequestBody.fromBytes or fromByteBuffer 因为字节会驻留在内存中造成OOM
-     * 这里最好的是上传切割后的单文件或者流文件
-     *
-     * @param bucketName      桶名称
-     * @param objectName      存储到桶的名称（这个名称还是原始名称）
-     * @param requestBodyList 分片对象
-     * @throws S3Exception S3Exception
-     */
-    Optional<CompleteMultipartUploadResponse> multipartUpload(String bucketName,
-                                                              String objectName,
-                                                              List<RequestBody> requestBodyList)
-            throws S3Exception;
-
-    /**
-     * 此操作中止多部分上传。多部分上传中止后，不能使用该上传ID上传其他部分。
-     * 任何先前上传的部件消耗的存储都将被释放。
-     * 但是，如果当前正在进行任何部分上传，则这些部分上传可能会成功，也可能不会成功。
-     * 因此，可能有必要多次中止给定的多部分上传，以便完全释放所有部分消耗的所有存储。
-     * 若要确认所有零件都已被移除，因此您无需收取零件存储费用，您应该调用ListParts 操作，并确保零件列表为空。
-     *
-     * @param bucketName 桶名称
-     * @param objectName 对象名称
-     * @param uploadId   上传ID
-     */
-    Optional<AbortMultipartUploadResponse> abortMultipartUpload(String bucketName,
-                                                                String objectName,
-                                                                String uploadId)
-            throws S3Exception;
-
 
     /**
      * 查询已经上传的所有的分片信息
@@ -191,26 +117,23 @@ public interface IAmazonS3V2Template extends IAmazonS3V2Bucket, IAmazonS3V2Objec
      * @param signatureTime 签名url过期时间
      * @return 预签名的对象的url
      */
-    Optional<PresignedGetObjectRequest> getPresignedUrl(String bucketName, String objectName, Duration signatureTime);
+    Optional<PresignedGetObjectRequest> getPresignedUrl(String bucketName,
+                                                        String objectName,
+                                                        Duration signatureTime);
 
 
     /**
-     * 下载一个文件
+     * 获取预签名的上传URL
      *
-     * @param bucketName       文件所在的桶
-     * @param objectName       对象名
-     * @param downloadBasePath 下载到本地所在的目录
-     * @throws IOException IOException
+     * @param bucketName    桶的名称
+     * @param objectName    对象名称
+     * @param contentType   文件类型
+     * @param signatureTime 预签名put url的过期时间
+     * @return 预签名的put url
      */
-    void download(String bucketName, String objectName, String downloadBasePath) throws IOException;
+    Optional<PresignedPutObjectRequest> getPresignedPutUrl(String bucketName,
+                                                           String objectName,
+                                                           String contentType,
+                                                           Duration signatureTime);
 
-    /**
-     * 下载文件夹
-     *
-     * @param bucketName       桶名称
-     * @param objectPrefix     对象前缀，也可以理解为文件夹
-     * @param downloadBasePath 下载到本地的基础路径
-     * @throws IOException IOException
-     */
-    void downloadFolder(String bucketName, String objectPrefix, String downloadBasePath) throws IOException;
 }

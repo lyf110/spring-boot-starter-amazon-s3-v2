@@ -1,5 +1,6 @@
 package com.amazon.s3.v2.core;
 
+import com.amazon.s3.v2.core.async.IAmazonS3V2AsyncBucket;
 import software.amazon.awssdk.services.s3.model.*;
 
 import java.util.Optional;
@@ -9,7 +10,7 @@ import java.util.Optional;
  * @description 提供Amazon S3 V2版本的Bucket操作方法接口
  * @since 2023/6/1 16:50:45
  */
-public interface IAmazonS3V2Bucket {
+public interface IAmazonS3V2Bucket extends IAmazonS3V2AsyncBucket {
 
     /**
      * 获取设置的默认桶
