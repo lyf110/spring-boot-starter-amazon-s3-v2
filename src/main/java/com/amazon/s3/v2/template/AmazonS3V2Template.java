@@ -8,10 +8,12 @@ import com.amazon.s3.v2.config.S3V2Base;
 import com.amazon.s3.v2.constant.BusinessV2Constant;
 import com.amazon.s3.v2.core.IAmazonS3V2Template;
 import com.amazon.s3.v2.core.functions.MultipartUploadBiFunction;
+import com.amazon.s3.v2.utils.BucketUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
 import org.springframework.web.multipart.MultipartFile;
+import software.amazon.awssdk.awscore.AwsRequestOverrideConfiguration;
 import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.exception.SdkClientException;
@@ -547,19 +549,24 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
         // 非空校验
         Assert.notEmpty(bucketName, "bucket name is not empty");
 
-        String toLowerCaseBucketName = bucketName.toLowerCase(Locale.ENGLISH);
-        // 如果是腾讯COS的话，需要手动封装AppleID
+        String lowerCaseBucketName = bucketName.toLowerCase(Locale.ENGLISH);
 
+        // 校验失败
+        if (!BucketUtil.isValid(lowerCaseBucketName)) {
+            throw new IllegalArgumentException(String.format("bucket [%s] is invalid, please check it", bucketName));
+        }
+
+        // 如果是腾讯COS的话，需要手动封装AppleID
         if (s3V2Base.isTencentCos()) {
             String appleId = s3V2Base.getAppleId();
             Assert.notEmpty(appleId, "Tencent cloud COS object storage must provide apple Id");
 
-            return toLowerCaseBucketName.endsWith(BusinessV2Constant.FILENAME_LINK + appleId) ?
-                    toLowerCaseBucketName : toLowerCaseBucketName + FILENAME_LINK + appleId;
+            return lowerCaseBucketName.endsWith(BusinessV2Constant.FILENAME_LINK + appleId) ?
+                    lowerCaseBucketName : lowerCaseBucketName + FILENAME_LINK + appleId;
         }
 
         // 返回处理过的桶名称
-        return toLowerCaseBucketName;
+        return lowerCaseBucketName;
     }
 
 

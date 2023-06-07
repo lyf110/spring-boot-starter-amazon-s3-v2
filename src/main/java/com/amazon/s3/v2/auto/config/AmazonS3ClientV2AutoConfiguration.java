@@ -34,7 +34,7 @@ public class AmazonS3ClientV2AutoConfiguration {
 
     @ConditionalOnMissingBean(AmazonS3V2Template.class)
     @Bean(name = "amazonS3V2Template")
-    public AmazonS3V2Template amazonS3V2Template(AmazonS3V2Factory amazonS3V2Factory) throws MalformedURLException, URISyntaxException {
+    public AmazonS3V2Template amazonS3V2Template(AmazonS3V2Factory amazonS3V2Factory) throws MalformedURLException, URISyntaxException, NoSuchFieldException, IllegalAccessException {
         return amazonS3V2Factory.createAmazonS3V2Template(s3V2Base);
     }
 }
