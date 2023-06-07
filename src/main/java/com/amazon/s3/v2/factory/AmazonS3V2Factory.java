@@ -8,16 +8,17 @@ import com.amazon.s3.v2.template.AmazonS3V2Template;
 import com.amazon.s3.v2.utils.BucketUtil;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentials;
+import software.amazon.awssdk.core.SdkRequest;
 import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
-import software.amazon.awssdk.core.interceptor.Context;
-import software.amazon.awssdk.core.interceptor.ExecutionAttributes;
-import software.amazon.awssdk.core.interceptor.ExecutionInterceptor;
-import software.amazon.awssdk.core.interceptor.SdkInternalExecutionAttribute;
+import software.amazon.awssdk.core.interceptor.*;
 import software.amazon.awssdk.endpoints.Endpoint;
+import software.amazon.awssdk.http.SdkHttpRequest;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
+import software.amazon.awssdk.services.s3.S3Utilities;
+import software.amazon.awssdk.services.s3.endpoints.internal.AwsEndpointProviderUtils;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.transfer.s3.S3TransferManager;
 
@@ -39,42 +40,55 @@ public class AmazonS3V2Factory {
      * https://github.com/aws/aws-sdk-java-v2/issues/3987
      */
     private final ExecutionInterceptor endpointHandlerExecutionInterceptor = new ExecutionInterceptor() {
+        /**
+         * 解决software.amazon.awssdk.services.s3.S3Utilities#getUrl(software.amazon.awssdk.services.s3.model.GetUrlRequest)
+         * NPE
+         * @param context context
+         * @param executionAttributes executionAttributes
+         * @return context
+         */
+        @Override
+        public SdkHttpRequest modifyHttpRequest(Context.ModifyHttpRequest context, ExecutionAttributes executionAttributes) {
+            Optional<String> bucketOption = context.request().getValueForField("Bucket", String.class);
+            bucketOption.ifPresent(bucketName -> handlerEndpoint(bucketName, executionAttributes));
+            return context.httpRequest();
+        }
 
         @Override
         public void beforeMarshalling(Context.BeforeMarshalling context, ExecutionAttributes executionAttributes) {
+            Optional<String> bucketOption = context.request().getValueForField("Bucket", String.class);
+            bucketOption.ifPresent(bucketName -> handlerEndpoint(bucketName, executionAttributes));
+        }
+
+        private void handlerEndpoint(String bucketName, ExecutionAttributes executionAttributes) {
             Endpoint endpoint = executionAttributes.getAttribute(SdkInternalExecutionAttribute.RESOLVED_ENDPOINT);
             if (endpoint != null) {
-                Optional<String> bucketOption = context.request().getValueForField("Bucket", String.class);
-                bucketOption.ifPresent(bucketName -> {
-                    // 如果Bucket包含局点，我们需要重新处理Url
-                    if (BucketUtil.isLikeHost(bucketName)) {
-                        //
-                        URI clientUrl = executionAttributes.getAttribute(SdkInternalExecutionAttribute.CLIENT_ENDPOINT);
+                // 如果Bucket包含局点，我们需要重新处理Url
+                if (BucketUtil.isLikeHost(bucketName)) {
+                    URI clientUrl = executionAttributes.getAttribute(SdkInternalExecutionAttribute.CLIENT_ENDPOINT);
 
-                        URI url = endpoint.url();
+                    URI url = endpoint.url();
 
-                        // 解决当bucketName包含句点(dots(.))时，java.lang.NullPointerException: host must not be null.
-                        if (StrUtil.isEmpty(url.getHost())) {
-                            String scheme = url.getScheme();
-                            String userInfo = url.getUserInfo();
-                            String host = clientUrl.getHost();
-                            int port = url.getPort() == -1 ? clientUrl.getPort() : url.getPort();
-                            String path = StrUtil.isEmpty(url.getPath()) ? "/" + bucketName : url.getPath();
-                            String query = url.getQuery();
-                            String fragment = url.getFragment();
+                    // 解决当bucketName包含句点(dots(.))时，java.lang.NullPointerException: host must not be null.
+                    if (StrUtil.isEmpty(url.getHost())) {
+                        String scheme = url.getScheme();
+                        String userInfo = url.getUserInfo();
+                        String host = clientUrl.getHost();
+                        int port = url.getPort() == -1 ? clientUrl.getPort() : url.getPort();
+                        String path = StrUtil.isEmpty(url.getPath()) ? "/" + bucketName : url.getPath();
+                        String query = url.getQuery();
+                        String fragment = url.getFragment();
 
-                            try {
-                                URI newUrl = new URI(scheme, userInfo, host, port, path, query, fragment);
-                                Endpoint newEndpoint = endpoint.toBuilder().url(newUrl).build();
-                                executionAttributes.putAttribute(SdkInternalExecutionAttribute.RESOLVED_ENDPOINT, newEndpoint);
-                            } catch (URISyntaxException e) {
-                                e.printStackTrace();
-                            }
+                        try {
+                            URI newUrl = new URI(scheme, userInfo, host, port, path, query, fragment);
+                            Endpoint newEndpoint = endpoint.toBuilder().url(newUrl).build();
+                            executionAttributes.putAttribute(SdkInternalExecutionAttribute.RESOLVED_ENDPOINT, newEndpoint);
+                        } catch (URISyntaxException e) {
+                            e.printStackTrace();
                         }
                     }
-                });
+                }
             }
-
         }
     };
 
@@ -105,6 +119,35 @@ public class AmazonS3V2Factory {
                         .build())
                 .build();
     }
+
+
+    /**
+     * 创建 S3Utilities
+     *
+     * @param s3Client s3Client
+     * @return S3Utilities
+     * @throws NoSuchFieldException   NoSuchFieldException
+     * @throws IllegalAccessException IllegalAccessException
+     */
+    @SuppressWarnings("unchecked")
+    public S3Utilities createS3Utilities(S3Client s3Client) throws NoSuchFieldException, IllegalAccessException {
+        S3Utilities s3Utilities = s3Client.utilities();
+        // 通过反射注入
+        // 反射注入拦截器
+        Field interceptorChainField = s3Utilities.getClass().getDeclaredField("interceptorChain");
+        interceptorChainField.setAccessible(true);
+        ExecutionInterceptorChain interceptorChain = (ExecutionInterceptorChain) interceptorChainField.get(s3Utilities);
+        Field interceptorsField = interceptorChain.getClass().getDeclaredField("interceptors");
+        interceptorsField.setAccessible(true);
+        List<ExecutionInterceptor> interceptors = (List<ExecutionInterceptor>) interceptorsField.get(interceptorChain);
+        interceptors.add(0, endpointHandlerExecutionInterceptor);
+        interceptorsField.setAccessible(false);
+
+        interceptorChainField.setAccessible(false);
+
+        return s3Utilities;
+    }
+
 
     /**
      * 创建Amazon S3 V2的异步操作客户端
@@ -155,6 +198,7 @@ public class AmazonS3V2Factory {
      * @return S3Presigner Amazon S3 V2的预签名的客户端
      * @throws URISyntaxException URISyntaxException
      */
+    @SuppressWarnings("unchecked")
     public S3Presigner createS3Presigner(String endPoint, String region, String accessKey, String secretKey) throws URISyntaxException, NoSuchFieldException, IllegalAccessException {
         AwsCredentials credentials = AwsBasicCredentials.create(accessKey, secretKey);
         S3Presigner presigner = S3Presigner.builder()
@@ -187,8 +231,8 @@ public class AmazonS3V2Factory {
      * @return AmazonS3V2Template
      */
     public AmazonS3V2Template createAmazonS3V2Template(
-            S3Client s3Client, S3AsyncClient s3AsyncClient, S3TransferManager s3TransferManager, S3Presigner s3Presigner, S3V2Base amazonS3V2Properties) {
-        return new AmazonS3V2Template(s3Client, s3AsyncClient, s3TransferManager, s3Presigner, amazonS3V2Properties);
+            S3Client s3Client, S3AsyncClient s3AsyncClient, S3TransferManager s3TransferManager, S3Presigner s3Presigner, S3Utilities s3Utilities, S3V2Base amazonS3V2Properties) {
+        return new AmazonS3V2Template(s3Client, s3AsyncClient, s3TransferManager, s3Presigner, s3Utilities, amazonS3V2Properties);
     }
 
 
@@ -230,8 +274,8 @@ public class AmazonS3V2Factory {
         S3AsyncClient s3AsyncClient = createS3AsynClient(endPoint, region, accessKey, secretKey);
         S3TransferManager s3TransferManager = createS3TransferManager(s3AsyncClient);
         S3Presigner s3Presigner = createS3Presigner(endPoint, region, accessKey, secretKey);
+        S3Utilities s3Utilities = createS3Utilities(s3Client);
 
-
-        return createAmazonS3V2Template(s3Client, s3AsyncClient, s3TransferManager, s3Presigner, BeanUtil.toBean(s3V2Base, S3V2Base.class));
+        return createAmazonS3V2Template(s3Client, s3AsyncClient, s3TransferManager, s3Presigner, s3Utilities, BeanUtil.toBean(s3V2Base, S3V2Base.class));
     }
 }

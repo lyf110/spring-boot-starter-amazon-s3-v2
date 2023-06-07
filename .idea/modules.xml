@@ -4,6 +4,7 @@
     <modules>
       <module fileurl="file://$PROJECT_DIR$/../../../local/amazon-s3-v2-boot-starter-demo/amazon-s3-v2-boot-starter-demo.iml" filepath="$PROJECT_DIR$/../../../local/amazon-s3-v2-boot-starter-demo/amazon-s3-v2-boot-starter-demo.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/spring-boot-starter-amazon-s3-v2.iml" filepath="$PROJECT_DIR$/.idea/spring-boot-starter-amazon-s3-v2.iml" />
+      <module fileurl="file://$PROJECT_DIR$/../spring-boot-starter-common-oss/spring-boot-starter-common-oss.iml" filepath="$PROJECT_DIR$/../spring-boot-starter-common-oss/spring-boot-starter-common-oss.iml" />
     </modules>
   </component>
 </project>

@@ -5,6 +5,7 @@
       <list>
         <option value="$PROJECT_DIR$/pom.xml" />
         <option value="$PROJECT_DIR$/../../../local/amazon-s3-v2-boot-starter-demo/pom.xml" />
+        <option value="$PROJECT_DIR$/../spring-boot-starter-common-oss/pom.xml" />
       </list>
     </option>
   </component>

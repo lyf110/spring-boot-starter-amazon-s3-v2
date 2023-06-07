@@ -9,6 +9,7 @@ import software.amazon.awssdk.services.s3.model.*;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URL;
 import java.util.List;
 import java.util.Optional;
 
@@ -254,5 +255,15 @@ public interface IAmazonS3V2Object extends IAmazonS3V2AsyncObject, IAmazonS3V2Up
      * @throws IOException IOException
      */
     Optional<ResponseInputStream<GetObjectResponse>> getObject(String bucketName, String objectName) throws IOException;
+
+
+    /**
+     * 获取对象的标准url
+     *
+     * @param bucketName 桶名
+     * @param objectName 对象名
+     * @return 对象的标准url
+     */
+    Optional<URL> getObjectUrl(String bucketName, String objectName);
 
 }

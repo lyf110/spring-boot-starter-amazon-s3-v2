@@ -3,6 +3,7 @@ package com.amazon.s3.v2.core;
 import com.amazon.s3.v2.config.S3V2Base;
 import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.S3Utilities;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
@@ -47,6 +48,14 @@ public interface IAmazonS3V2Template extends IAmazonS3V2Bucket, IAmazonS3V2Objec
      * @return S3Presigner
      */
     S3Presigner getS3Presigner();
+
+
+    /**
+     * 获取 S3Utilities
+     *
+     * @return S3Utilities
+     */
+    S3Utilities getS3Utilities();
 
     /**
      * 获取基础的配置信息

@@ -1,8 +1,6 @@
 package com.amazon.s3.v2.utils;
 
 
-import cn.hutool.core.net.Ipv4Util;
-import cn.hutool.core.util.NumberUtil;
 import cn.hutool.core.util.StrUtil;
 import lombok.extern.slf4j.Slf4j;
 
@@ -113,12 +111,6 @@ public final class BucketUtil {
             log.warn("bucket [{}] must not use of ipv6", bucketName);
             return false;
         }
-
-//        // to resolve java.lang.NullPointerException: host must not be null.
-//        if (HOST_PATTERN.matcher(bucketName).matches()) {
-//            log.warn("bucket [{}] must not like host", bucketName);
-//            return false;
-//        }
 
         // 存储桶名称不得以前缀 xn-- 开头。
         // 存储桶名称不得以后缀 -s3alias 结尾。

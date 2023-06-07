@@ -19,8 +19,8 @@ import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.http.HttpStatusFamily;
-import software.amazon.awssdk.services.s3.S3AsyncClient;
-import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.*;
+import software.amazon.awssdk.services.s3.internal.endpoints.S3EndpointUtils;
 import software.amazon.awssdk.services.s3.model.*;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
@@ -32,6 +32,8 @@ import software.amazon.awssdk.transfer.s3.model.*;
 import software.amazon.awssdk.transfer.s3.progress.LoggingTransferListener;
 
 import java.io.*;
+import java.net.URI;
+import java.net.URL;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -60,9 +62,10 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
     private S3TransferManager s3TransferManager;
     private final S3Presigner s3Presigner;
     private final S3V2Base s3V2Base;
+    private final S3Utilities s3Utilities;
 
 
-    public AmazonS3V2Template(S3Client s3Client, S3AsyncClient s3AsyncClient, S3TransferManager s3TransferManager, S3Presigner s3Presigner, S3V2Base s3V2Base) {
+    public AmazonS3V2Template(S3Client s3Client, S3AsyncClient s3AsyncClient, S3TransferManager s3TransferManager, S3Presigner s3Presigner, S3Utilities s3Utilities, S3V2Base s3V2Base) {
         this.s3Client = s3Client;
         this.s3AsyncClient = s3AsyncClient;
         this.s3TransferManager = s3TransferManager;
@@ -70,7 +73,8 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
         this.s3V2Base = s3V2Base;
 
         // 这里增加一个操作，创建默认存储桶的操作
-        createBucket(s3V2Base.getBucket());
+        //createBucket(s3V2Base.getBucket());
+        this.s3Utilities = s3Utilities;
     }
 
     @Override
@@ -591,6 +595,11 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
     }
 
     @Override
+    public S3Utilities getS3Utilities() {
+        return s3Utilities;
+    }
+
+    @Override
     public S3V2Base getS3V2Base() {
         return s3V2Base;
     }
@@ -1037,6 +1046,33 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
         }
     }
 
+
+    /**
+     * 获取对象的标准url
+     *
+     * @param bucketName 桶名
+     * @param objectName 对象名
+     * @return 对象的标准url
+     */
+    @Override
+    public Optional<URL> getObjectUrl(String bucketName, String objectName) {
+        try {
+            Assert.notEmpty(objectName, "objectName not empty");
+            bucketName = handlerBucketName(bucketName);
+            GetUrlRequest request = GetUrlRequest.builder()
+                    .bucket(bucketName)
+                    .key(objectName)
+                    .build();
+
+
+            URL url = s3Utilities.getUrl(request);
+            log.info("bucket [{}] object [{}] url [{}]",bucketName, objectName, url);
+            return Optional.of(url);
+        } catch (S3Exception e) {
+            log.error("bucket [{}] object [{}]", bucketName, objectName, e);
+            return Optional.empty();
+        }
+    }
 
     /**
      * 获取预签名的对象的url
