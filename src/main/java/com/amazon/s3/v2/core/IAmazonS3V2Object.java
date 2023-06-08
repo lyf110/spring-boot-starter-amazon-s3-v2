@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -188,6 +189,54 @@ public interface IAmazonS3V2Object extends IAmazonS3V2AsyncObject, IAmazonS3V2Up
 
 
     /**
+     * 上传字符串到OSS
+     *
+     * @param bucketName 桶名称
+     * @param objectName 对象名称
+     * @param content    字符串对象
+     * @return 返回结果
+     * @throws S3Exception S3Exception
+     */
+    Optional<PutObjectResponse> putObject(
+            String bucketName,
+            String objectName,
+            String content) throws S3Exception;
+
+    /**
+     * 上传字符串到OSS
+     *
+     * @param bucketName  桶名称
+     * @param objectName  对象名称
+     * @param content     字符串对象
+     * @param metadataMap 元数据
+     * @return 返回结果
+     * @throws S3Exception S3Exception
+     */
+    Optional<PutObjectResponse> putObject(String bucketName,
+                                          String objectName,
+                                          String content,
+                                          Map<String, String> metadataMap);
+
+
+    /**
+     * 上传一个对象
+     *
+     * @param bucketName  桶名称
+     * @param objectName  对象名称
+     * @param contentType 对象类型
+     * @param metadataMap 元数据
+     * @param requestBody 上传的对象
+     * @return 返回结果
+     * @throws S3Exception S3Exception
+     */
+    public Optional<PutObjectResponse> putObject(String bucketName,
+                                                 String objectName,
+                                                 String contentType,
+                                                 Map<String, String> metadataMap,
+                                                 RequestBody requestBody);
+
+
+    /**
      * 上传一个对象
      *
      * @param bucketName  桶名称
@@ -202,7 +251,6 @@ public interface IAmazonS3V2Object extends IAmazonS3V2AsyncObject, IAmazonS3V2Up
             String objectName,
             String contentType,
             RequestBody requestBody) throws S3Exception;
-
 
     /**
      * 查询桶的所有对象

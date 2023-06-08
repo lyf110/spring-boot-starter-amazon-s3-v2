@@ -3,6 +3,7 @@ package com.amazon.s3.v2.template;
 import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.lang.Assert;
 import cn.hutool.core.lang.UUID;
+import cn.hutool.core.map.MapUtil;
 import cn.hutool.core.util.StrUtil;
 import com.amazon.s3.v2.config.S3V2Base;
 import com.amazon.s3.v2.constant.BusinessV2Constant;
@@ -33,6 +34,7 @@ import software.amazon.awssdk.transfer.s3.progress.LoggingTransferListener;
 
 import java.io.*;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -189,6 +191,83 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
         }
     }
 
+    /**
+     * 上传字符串到OSS
+     *
+     * @param bucketName 桶名称
+     * @param objectName 对象名称
+     * @param content    字符串对象
+     * @return 返回结果
+     * @throws S3Exception S3Exception
+     */
+    @Override
+    public Optional<PutObjectResponse> putObject(String bucketName, String objectName, String content) throws S3Exception {
+        return putObject(bucketName, objectName, "text/plain", RequestBody.fromString(content, StandardCharsets.UTF_8));
+    }
+
+
+    /**
+     * 上传字符串到OSS
+     *
+     * @param bucketName 桶名称
+     * @param objectName 对象名称
+     * @param content    字符串对象
+     * @return 返回结果
+     * @throws S3Exception S3Exception
+     */
+    @Override
+    public Optional<PutObjectResponse> putObject(String bucketName, String objectName, String content, Map<String, String> metadataMap) throws S3Exception {
+        return putObject(bucketName, objectName, "text/plain", metadataMap, RequestBody.fromString(content, StandardCharsets.UTF_8));
+    }
+
+
+    /**
+     * 上传一个对象
+     *
+     * @param bucketName  桶名称
+     * @param objectName  对象名称
+     * @param contentType 对象类型
+     * @param metadataMap 元数据
+     * @param requestBody 上传的对象
+     * @return 返回结果
+     * @throws S3Exception S3Exception
+     */
+    @Override
+    public Optional<PutObjectResponse> putObject(String bucketName,
+                                                 String objectName,
+                                                 String contentType,
+                                                 Map<String, String> metadataMap,
+                                                 RequestBody requestBody) {
+
+
+        bucketName = handlerBucketName(bucketName);
+        Assert.notEmpty(objectName, "object name not empty");
+        Assert.notNull(requestBody, "requestBody not empty");
+
+        PutObjectRequest.Builder builder = PutObjectRequest.builder()
+                .bucket(bucketName)
+                .key(objectName);
+
+        if (StrUtil.isNotEmpty(contentType)) {
+            builder.contentType(contentType);
+        }
+
+        if (MapUtil.isNotEmpty(metadataMap)) {
+            builder.metadata(metadataMap);
+        }
+
+
+        PutObjectResponse putObjectResponse = null;
+        try {
+            putObjectResponse = s3Client.putObject(builder.build(), requestBody);
+            return Optional.of(putObjectResponse);
+        } catch (AwsServiceException | SdkClientException e) {
+            log.error("put object failed bucket [{}] object [{}] contentType [{}] requestBody [{}], the cause is",
+                    bucketName, objectName, contentType, requestBody, e);
+            return Optional.empty();
+        }
+    }
+
 
     /**
      * 上传一个对象
@@ -205,28 +284,7 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
                                                  String objectName,
                                                  String contentType,
                                                  RequestBody requestBody) throws S3Exception {
-        bucketName = handlerBucketName(bucketName);
-        Assert.notEmpty(objectName, "object name not empty");
-        Assert.notNull(requestBody, "requestBody not empty");
-
-        PutObjectRequest.Builder builder = PutObjectRequest.builder()
-                .bucket(bucketName)
-                .key(objectName);
-
-        if (StrUtil.isNotEmpty(contentType)) {
-            builder.contentType(contentType);
-        }
-
-
-        PutObjectResponse putObjectResponse = null;
-        try {
-            putObjectResponse = s3Client.putObject(builder.build(), requestBody);
-            return Optional.of(putObjectResponse);
-        } catch (AwsServiceException | SdkClientException e) {
-            log.error("put object failed bucket [{}] object [{}] contentType [{}] requestBody [{}], the cause is",
-                    bucketName, objectName, contentType, requestBody, e);
-            return Optional.empty();
-        }
+        return putObject(bucketName, objectName, contentType, null, requestBody);
     }
 
     /**
