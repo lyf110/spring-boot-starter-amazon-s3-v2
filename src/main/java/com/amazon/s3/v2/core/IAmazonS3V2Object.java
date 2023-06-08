@@ -201,7 +201,7 @@ public interface IAmazonS3V2Object extends IAmazonS3V2AsyncObject, IAmazonS3V2Up
             String bucketName,
             String objectName,
             String contentType,
-            RequestBody requestBody) throws S3Exception, IOException;
+            RequestBody requestBody) throws S3Exception;
 
 
     /**

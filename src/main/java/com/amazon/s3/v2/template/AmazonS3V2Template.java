@@ -13,14 +13,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
 import org.springframework.web.multipart.MultipartFile;
-import software.amazon.awssdk.awscore.AwsRequestOverrideConfiguration;
 import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.http.HttpStatusFamily;
-import software.amazon.awssdk.services.s3.*;
-import software.amazon.awssdk.services.s3.internal.endpoints.S3EndpointUtils;
+import software.amazon.awssdk.services.s3.S3AsyncClient;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.S3Utilities;
 import software.amazon.awssdk.services.s3.model.*;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
@@ -32,7 +32,6 @@ import software.amazon.awssdk.transfer.s3.model.*;
 import software.amazon.awssdk.transfer.s3.progress.LoggingTransferListener;
 
 import java.io.*;
-import java.net.URI;
 import java.net.URL;
 import java.nio.file.Paths;
 import java.time.Duration;
@@ -45,7 +44,8 @@ import static com.amazon.s3.v2.constant.BusinessV2Constant.*;
 
 /**
  * @author liuyangfang
- * @description
+ * @description 本类模板代码是基于Amazon S3 Java V2版本代码的封装
+ * @link https://docs.aws.amazon.com/zh_cn/sdk-for-java/latest/developer-guide/java_s3_code_examples.html
  * @since 2023/6/1 10:49:15
  */
 @Slf4j
@@ -54,14 +54,45 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
      * 默认的分片大小5M
      */
     private static final int DEFAULT_SLICE_SIZE = 5 * 1024 * 1024;
+
+    /**
+     * 最小的上传的文件大小
+     */
     public static final long MIN_UPLOAD_SIZE = 0L;
+
+    /**
+     * 这里的最大上传的单体文件大小，超过此文件建议使用分片上传实现
+     */
     public static final int MAX_SINGLETON_SIZE = (int) (0.8 * MAX_UPLOAD_SIZE);
 
+    /**
+     * 标准的S3客户端
+     */
     private final S3Client s3Client;
+
+    /**
+     * 提供了异步操作的S3客户端
+     */
     private final S3AsyncClient s3AsyncClient;
-    private S3TransferManager s3TransferManager;
+
+    /**
+     * 提供了文件传输的管理器
+     */
+    private final S3TransferManager s3TransferManager;
+
+    /**
+     * 提供生成预签名url的签名对象
+     */
     private final S3Presigner s3Presigner;
+
+    /**
+     * S3Client所需要的基础属性
+     */
     private final S3V2Base s3V2Base;
+
+    /**
+     * 此类是为了获取对象的基础URI
+     */
     private final S3Utilities s3Utilities;
 
 
@@ -72,8 +103,8 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
         this.s3Presigner = s3Presigner;
         this.s3V2Base = s3V2Base;
 
-        // 这里增加一个操作，创建默认存储桶的操作
-        //createBucket(s3V2Base.getBucket());
+        // 创建默认存储桶的操作
+        createBucket(s3V2Base.getBucket());
         this.s3Utilities = s3Utilities;
     }
 
@@ -173,13 +204,10 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
     public Optional<PutObjectResponse> putObject(String bucketName,
                                                  String objectName,
                                                  String contentType,
-                                                 RequestBody requestBody) throws S3Exception, IOException {
+                                                 RequestBody requestBody) throws S3Exception {
         bucketName = handlerBucketName(bucketName);
         Assert.notEmpty(objectName, "object name not empty");
         Assert.notNull(requestBody, "requestBody not empty");
-
-
-        // 这里需要增加关流的操作，PutObject方法是不会自动关流的
 
         PutObjectRequest.Builder builder = PutObjectRequest.builder()
                 .bucket(bucketName)
@@ -190,8 +218,15 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
         }
 
 
-        PutObjectResponse putObjectResponse = s3Client.putObject(builder.build(), requestBody);
-        return Optional.of(putObjectResponse);
+        PutObjectResponse putObjectResponse = null;
+        try {
+            putObjectResponse = s3Client.putObject(builder.build(), requestBody);
+            return Optional.of(putObjectResponse);
+        } catch (AwsServiceException | SdkClientException e) {
+            log.error("put object failed bucket [{}] object [{}] contentType [{}] requestBody [{}], the cause is",
+                    bucketName, objectName, contentType, requestBody, e);
+            return Optional.empty();
+        }
     }
 
     /**
@@ -1066,7 +1101,7 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
 
 
             URL url = s3Utilities.getUrl(request);
-            log.info("bucket [{}] object [{}] url [{}]",bucketName, objectName, url);
+            log.info("bucket [{}] object [{}] url [{}]", bucketName, objectName, url);
             return Optional.of(url);
         } catch (S3Exception e) {
             log.error("bucket [{}] object [{}]", bucketName, objectName, e);
@@ -1892,5 +1927,186 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
                 destBucketName,
                 destObjectName);
         return completedCopy.response().copyObjectResult().eTag();
+    }
+
+
+    /**
+     * 删除跨域配置
+     *
+     * @param bucketName 桶名
+     * @return 删除结果
+     */
+    @Override
+    public Optional<DeleteBucketCorsResponse> deleteBucketCors(String bucketName) {
+        return deleteBucketCors(bucketName, null);
+    }
+
+    /**
+     * 删除跨域配置
+     *
+     * @param bucketName 桶名
+     * @param accountId  预期存储桶拥有者 – 预期存储桶拥有者的账户 ID。
+     *                   如果存储桶由其他账户拥有，则请求将失败并显示 HTTP 状态代码 403 Forbidden （访问被拒绝）。
+     * @return 删除结果
+     */
+    @Override
+    public Optional<DeleteBucketCorsResponse> deleteBucketCors(String bucketName,
+                                                               String accountId) {
+        try {
+            bucketName = handlerBucketName(bucketName);
+            DeleteBucketCorsRequest.Builder builder = DeleteBucketCorsRequest.builder().bucket(bucketName);
+
+            if (StrUtil.isNotEmpty(accountId)) {
+                builder.expectedBucketOwner(accountId);
+            }
+            DeleteBucketCorsRequest bucketCorsRequest = builder.build();
+
+            DeleteBucketCorsResponse deleteBucketCorsResponse = s3Client.deleteBucketCors(bucketCorsRequest);
+
+            return Optional.ofNullable(deleteBucketCorsResponse);
+        } catch (S3Exception e) {
+            log.error("delete Bucket [{}] accountId [{}] Cors Info failed, the cause is", bucketName, accountId, e);
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * 获取默认的桶的跨域配置策略
+     *
+     * @param bucketName 桶名
+     * @return 桶的跨域配置策略
+     */
+    @Override
+    public Optional<GetBucketCorsResponse> getBucketCors(String bucketName) {
+        return getBucketCors(bucketName, null);
+    }
+
+    /**
+     * 获取默认的桶的跨域配置策略
+     *
+     * @param bucketName 桶名
+     * @param accountId  预期存储桶拥有者 – 预期存储桶拥有者的账户 ID。
+     *                   如果存储桶由其他账户拥有，
+     *                   则请求将失败并显示 HTTP 状态代码 403 Forbidden （访问被拒绝）。
+     * @return 桶的跨域配置策略
+     */
+    @Override
+    public Optional<GetBucketCorsResponse> getBucketCors(String bucketName, String accountId) {
+        try {
+            bucketName = handlerBucketName(bucketName);
+            GetBucketCorsRequest.Builder builder = GetBucketCorsRequest.builder().bucket(bucketName);
+
+            if (StrUtil.isNotEmpty(accountId)) {
+                builder.expectedBucketOwner(accountId);
+            }
+
+            GetBucketCorsRequest bucketCorsRequest = builder.build();
+            GetBucketCorsResponse corsResponse = s3Client.getBucketCors(bucketCorsRequest);
+            return Optional.ofNullable(corsResponse);
+        } catch (S3Exception e) {
+            log.error("get Bucket [{}] accountId [{}] Cors Info failed, the cause is", bucketName, accountId, e);
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * 配置桶的跨域信息
+     *
+     * @param bucketName 桶名
+     * @param corsRules  跨域规则
+     * @return 配置桶的跨域结果
+     */
+    @Override
+    public Optional<PutBucketCorsResponse> putBucketCors(String bucketName, List<CORSRule> corsRules) {
+        return putBucketCors(bucketName, null, corsRules);
+    }
+
+    /**
+     * 配置桶的跨域信息
+     *
+     * @param bucketName   桶名
+     * @param xmlCorsRules xml形式的跨域规则
+     * @return 配置桶的跨域结果
+     */
+    @Override
+    public Optional<PutBucketCorsResponse> putBucketCorsByXml(String bucketName, String xmlCorsRules) {
+        return putBucketCorsByXml(bucketName, null, xmlCorsRules);
+    }
+
+    /**
+     * 配置桶的跨域信息
+     *
+     * @param bucketName   桶名
+     * @param accountId    预期存储桶拥有者 – 预期存储桶拥有者的账户 ID。
+     *                     如果存储桶由其他账户拥有，
+     *                     则请求将失败并显示 HTTP 状态代码 403 Forbidden （访问被拒绝）。
+     * @param xmlCorsRules xml形式的跨域规则
+     * @return 配置桶的跨域结果
+     */
+    @Override
+    public Optional<PutBucketCorsResponse> putBucketCorsByXml(String bucketName, String accountId, String xmlCorsRules) {
+        return putBucketCors(bucketName, accountId, BucketUtil.xmlToCorsRules(xmlCorsRules));
+    }
+
+    /**
+     * 配置桶的跨域信息
+     *
+     * @param bucketName    桶名
+     * @param jsonCorsRules json形式的跨域规则
+     * @return 配置桶的跨域结果
+     */
+    @Override
+    public Optional<PutBucketCorsResponse> putBucketCorsByJson(String bucketName, String jsonCorsRules) {
+        return putBucketCorsByJson(bucketName, null, jsonCorsRules);
+    }
+
+    /**
+     * 配置桶的跨域信息
+     *
+     * @param bucketName    桶名
+     * @param accountId     预期存储桶拥有者 – 预期存储桶拥有者的账户 ID。
+     *                      如果存储桶由其他账户拥有，
+     *                      则请求将失败并显示 HTTP 状态代码 403 Forbidden （访问被拒绝）。
+     * @param jsonCorsRules json形式的跨域规则
+     * @return 配置桶的跨域结果
+     */
+    @Override
+    public Optional<PutBucketCorsResponse> putBucketCorsByJson(String bucketName, String accountId, String jsonCorsRules) {
+        return putBucketCors(bucketName, accountId, BucketUtil.jsonToCorsRules(jsonCorsRules));
+    }
+
+    /**
+     * 配置桶的跨域信息
+     *
+     * @param bucketName 桶名
+     * @param accountId  预期存储桶拥有者 – 预期存储桶拥有者的账户 ID。
+     *                   如果存储桶由其他账户拥有，
+     *                   则请求将失败并显示 HTTP 状态代码 403 Forbidden （访问被拒绝）。
+     * @param corsRules  跨域规则
+     * @return 配置桶的跨域结果
+     */
+    public Optional<PutBucketCorsResponse> putBucketCors(String bucketName, String accountId, List<CORSRule> corsRules) {
+        try {
+            if (CollectionUtil.isEmpty(corsRules)) {
+                return Optional.empty();
+            }
+
+            CORSConfiguration configuration = CORSConfiguration.builder()
+                    .corsRules(corsRules)
+                    .build();
+            PutBucketCorsRequest.Builder builder = PutBucketCorsRequest.builder()
+                    .bucket(bucketName)
+                    .corsConfiguration(configuration);
+            if (StrUtil.isNotEmpty(accountId)) {
+                builder.expectedBucketOwner(accountId);
+            }
+            PutBucketCorsRequest putBucketCorsRequest = builder.build();
+            PutBucketCorsResponse putBucketCorsResponse = s3Client.putBucketCors(putBucketCorsRequest);
+            return Optional.ofNullable(putBucketCorsResponse);
+        } catch (S3Exception e) {
+            log.error("set Bucket [{}] accountId [{}] Cors Info failed, the cause is",
+                    bucketName, accountId, e);
+            return Optional.empty();
+        }
     }
 }

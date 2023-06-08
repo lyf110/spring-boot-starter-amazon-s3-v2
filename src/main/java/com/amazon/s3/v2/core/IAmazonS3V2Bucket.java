@@ -3,6 +3,7 @@ package com.amazon.s3.v2.core;
 import com.amazon.s3.v2.core.async.IAmazonS3V2AsyncBucket;
 import software.amazon.awssdk.services.s3.model.*;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -60,4 +61,109 @@ public interface IAmazonS3V2Bucket extends IAmazonS3V2AsyncBucket {
      * @return 所有的桶
      */
     Optional<ListBucketsResponse> listBucket(ListBucketsRequest listBucketsRequest);
+
+    /**
+     * 删除跨域配置
+     *
+     * @param bucketName 桶名
+     * @return 删除结果
+     */
+    Optional<DeleteBucketCorsResponse> deleteBucketCors(String bucketName);
+
+
+    /**
+     * 删除跨域配置
+     *
+     * @param bucketName 桶名
+     * @param accountId  预期存储桶拥有者 – 预期存储桶拥有者的账户 ID。
+     *                   如果存储桶由其他账户拥有，
+     *                   则请求将失败并显示 HTTP 状态代码 403 Forbidden （访问被拒绝）。
+     * @return 删除结果
+     */
+    Optional<DeleteBucketCorsResponse> deleteBucketCors(String bucketName,
+                                                        String accountId);
+
+
+    /**
+     * 获取默认的桶的跨域配置策略
+     *
+     * @param bucketName 桶名
+     * @return 桶的跨域配置策略
+     */
+    Optional<GetBucketCorsResponse> getBucketCors(String bucketName);
+
+    /**
+     * 获取默认的桶的跨域配置策略
+     *
+     * @param bucketName 桶名
+     * @param accountId  预期存储桶拥有者 – 预期存储桶拥有者的账户 ID。
+     *                   如果存储桶由其他账户拥有，
+     *                   则请求将失败并显示 HTTP 状态代码 403 Forbidden （访问被拒绝）。
+     * @return 桶的跨域配置策略
+     */
+    Optional<GetBucketCorsResponse> getBucketCors(String bucketName, String accountId);
+
+
+    /**
+     * 配置桶的跨域信息
+     *
+     * @param bucketName 桶名
+     * @param corsRules  跨域规则
+     * @return 配置桶的跨域结果
+     */
+    Optional<PutBucketCorsResponse> putBucketCors(String bucketName, List<CORSRule> corsRules);
+
+    /**
+     * 配置桶的跨域信息
+     *
+     * @param bucketName   桶名
+     * @param xmlCorsRules xml形式的跨域规则
+     * @return 配置桶的跨域结果
+     */
+    Optional<PutBucketCorsResponse> putBucketCorsByXml(String bucketName, String xmlCorsRules);
+
+    /**
+     * 配置桶的跨域信息
+     *
+     * @param bucketName   桶名
+     * @param accountId    预期存储桶拥有者 – 预期存储桶拥有者的账户 ID。
+     *                     如果存储桶由其他账户拥有，
+     *                     则请求将失败并显示 HTTP 状态代码 403 Forbidden （访问被拒绝）。
+     * @param xmlCorsRules xml形式的跨域规则
+     * @return 配置桶的跨域结果
+     */
+    Optional<PutBucketCorsResponse> putBucketCorsByXml(String bucketName, String accountId, String xmlCorsRules);
+
+    /**
+     * 配置桶的跨域信息
+     *
+     * @param bucketName    桶名
+     * @param jsonCorsRules json形式的跨域规则
+     * @return 配置桶的跨域结果
+     */
+    Optional<PutBucketCorsResponse> putBucketCorsByJson(String bucketName, String jsonCorsRules);
+
+    /**
+     * 配置桶的跨域信息
+     *
+     * @param bucketName    桶名
+     * @param accountId     预期存储桶拥有者 – 预期存储桶拥有者的账户 ID。
+     *                      如果存储桶由其他账户拥有，
+     *                      则请求将失败并显示 HTTP 状态代码 403 Forbidden （访问被拒绝）。
+     * @param jsonCorsRules json形式的跨域规则
+     * @return 配置桶的跨域结果
+     */
+    Optional<PutBucketCorsResponse> putBucketCorsByJson(String bucketName, String accountId, String jsonCorsRules);
+
+    /**
+     * 配置桶的跨域信息
+     *
+     * @param bucketName 桶名
+     * @param accountId  预期存储桶拥有者 – 预期存储桶拥有者的账户 ID。
+     *                   如果存储桶由其他账户拥有，
+     *                   则请求将失败并显示 HTTP 状态代码 403 Forbidden （访问被拒绝）。
+     * @param corsRules  跨域规则
+     * @return 配置桶的跨域结果
+     */
+    Optional<PutBucketCorsResponse> putBucketCors(String bucketName, String accountId, List<CORSRule> corsRules);
 }

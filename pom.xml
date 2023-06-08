@@ -24,6 +24,7 @@
         <software.amazon.awssdk.s3.version>2.20.74</software.amazon.awssdk.s3.version>
         <hutool-all.version>5.8.18</hutool-all.version>
         <commons-io.version>2.11.0</commons-io.version>
+        <dom4j.version>2.1.4</dom4j.version>
     </properties>
 
 
@@ -69,8 +70,6 @@
         </dependency>
 
 
-
-
         <!--工具包-->
         <dependency>
             <groupId>cn.hutool</groupId>
@@ -87,6 +86,19 @@
             <groupId>commons-io</groupId>
             <artifactId>commons-io</artifactId>
             <version>${commons-io.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.dom4j</groupId>
+            <artifactId>dom4j</artifactId>
+            <version>${dom4j.version}</version>
+        </dependency>
+
+        <!-- https://mvnrepository.com/artifact/com.google.code.gson/gson -->
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <version>2.10.1</version>
         </dependency>
 
 

@@ -1,10 +1,23 @@
 package com.amazon.s3.v2.utils;
 
 
+import cn.hutool.core.map.MapUtil;
+import cn.hutool.core.util.NumberUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.core.util.XmlUtil;
+import cn.hutool.json.JSONArray;
+import cn.hutool.json.JSONObject;
+import cn.hutool.json.JSONUtil;
 import lombok.extern.slf4j.Slf4j;
+import software.amazon.awssdk.services.s3.model.CORSRule;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * @author liuyangfang
@@ -132,5 +145,316 @@ public final class BucketUtil {
      */
     public static boolean isLikeHost(String bucketName) {
         return StrUtil.isNotEmpty(bucketName) && HOST_PATTERN.matcher(bucketName).matches();
+    }
+
+
+    /**
+     * 将xml转成CORSRule集合
+     * <p>
+     * <?xml version="1.0" encoding="UTF-8"?>
+     * <CORSConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+     * <CORSRule>
+     * <ID>ecf61fee281342d69005831895e36afd</ID>
+     * <AllowedHeader>*</AllowedHeader>
+     * <AllowedMethod>PUT</AllowedMethod>
+     * <AllowedMethod>POST</AllowedMethod>
+     * <AllowedMethod>DELETE</AllowedMethod>
+     * <AllowedOrigin>http://www.example.com</AllowedOrigin>
+     * <AllowedOrigin>http://www.example2.com</AllowedOrigin>
+     * <ExposeHeader>x-amz-server-side-encryption</ExposeHeader>
+     * <ExposeHeader>x-amz-request-id</ExposeHeader>
+     * <ExposeHeader>x-amz-id-2</ExposeHeader>
+     * <MaxAgeSeconds>3000</MaxAgeSeconds>
+     * </CORSRule>
+     *
+     * <CORSRule>
+     * <ID>ecf61fee281342d69004323232436afd</ID>
+     * <AllowedHeader>*</AllowedHeader>
+     * <AllowedMethod>PUT</AllowedMethod>
+     * <AllowedMethod>POST</AllowedMethod>
+     * <AllowedMethod>DELETE</AllowedMethod>
+     * <AllowedOrigin>http://www.example.com</AllowedOrigin>
+     * <AllowedOrigin>http://www.example2.com</AllowedOrigin>
+     * <ExposeHeader>x-amz-server-side-encryption</ExposeHeader>
+     * <ExposeHeader>x-amz-request-id</ExposeHeader>
+     * <ExposeHeader>x-amz-id-2</ExposeHeader>
+     * <MaxAgeSeconds>3000</MaxAgeSeconds>
+     * </CORSRule>
+     * </CORSConfiguration>
+     *
+     * @param xmlCorsRules xmlCorsRules
+     * @return CORSRule List
+     */
+    public static List<CORSRule> xmlToCorsRules(String xmlCorsRules) {
+        try {
+            Map<String, Object> objectMap = XmlUtil.xmlToMap(xmlCorsRules);
+            if (MapUtil.isEmpty(objectMap)) {
+                return Collections.emptyList();
+            }
+
+            Object corsRuleObj = objectMap.get("CORSRule");
+            if (corsRuleObj instanceof List) {
+                // 这里就是List<CORSRule>
+                List<Map<?, ?>> corsRuleObjList = (List<Map<?, ?>>) corsRuleObj;
+                return corsRuleObjList.stream().map(BucketUtil::mapToCorsRule).collect(Collectors.toList());
+            } else if (corsRuleObj instanceof Map) {
+                // 这里就是CORSRule
+                Map<?, ?> corsRuleObjMap = (Map<?, ?>) corsRuleObj;
+                return Collections.singletonList(mapToCorsRule(corsRuleObjMap));
+            } else {
+                throw new IllegalArgumentException(String.format("corsRuleObj [%s] type [%s] is Unsupported types", corsRuleObj, corsRuleObj.getClass()));
+            }
+        } catch (Exception e) {
+            log.error("xml [{}] To Cors Rules failed, the cause is", xmlCorsRules, e);
+            return Collections.emptyList();
+        }
+    }
+
+    /**
+     * [
+     * {
+     * "AllowedMethod" : [
+     * "PUT",
+     * "POST",
+     * "DELETE"
+     * ],
+     * "MaxAgeSeconds" : "3000",
+     * "ExposeHeader" : [
+     * "x-amz-server-side-encryption",
+     * "x-amz-request-id",
+     * "x-amz-id-2"
+     * ],
+     * "ID" : "ecf61fee281342d69005831895e36afd",
+     * "AllowedOrigin" : [
+     * "http://www.example.com",
+     * "http://www.example2.com"
+     * ],
+     * "AllowedHeader" : "*"
+     * },
+     * {
+     * "AllowedMethod" : [
+     * "PUT",
+     * "POST",
+     * "DELETE"
+     * ],
+     * "MaxAgeSeconds" : "3000",
+     * "ExposeHeader" : [
+     * "x-amz-server-side-encryption",
+     * "x-amz-request-id",
+     * "x-amz-id-2"
+     * ],
+     * "ID" : "ecf61fee281342d69004323232436afd",
+     * "AllowedOrigin" : [
+     * "http://www.example.com",
+     * "http://www.example2.com"
+     * ],
+     * "AllowedHeader" : "*"
+     * }
+     * ]
+     *
+     * @param jsonCorsRules jsonCorsRules
+     * @return CORSRule List
+     */
+    public static List<CORSRule> jsonToCorsRules(String jsonCorsRules) {
+        try {
+            // 尝试转成JSONArray
+            JSONArray jsonArray = JSONUtil.parseArray(jsonCorsRules);
+
+            List<CORSRule> corsRuleList = new ArrayList<>(jsonArray.size());
+            for (Object obj : jsonArray) {
+                Map<?, ?> map = (Map<?, ?>) obj;
+                CORSRule corsRule = mapToCorsRule(map);
+                corsRuleList.add(corsRule);
+            }
+
+            return corsRuleList;
+        } catch (Exception e) {
+            log.error("{} parse to json array failed, the cause is {}", jsonCorsRules, e.getMessage());
+
+            try {
+                JSONObject jsonObject = JSONUtil.parseObj(jsonCorsRules);
+                return Collections.singletonList(mapToCorsRule(jsonObject));
+            } catch (Exception ex) {
+                log.error("{} parse to json object failed, the cause is {}", jsonCorsRules, ex.getMessage());
+
+                return Collections.emptyList();
+            }
+        }
+    }
+
+    /**
+     * 将Map转成CORSRule
+     *
+     * @param corsRuleObjMap corsRuleObjMap
+     * @return CORSRule
+     */
+    @SuppressWarnings("unchecked")
+    private static CORSRule mapToCorsRule(Map<?, ?> corsRuleObjMap) {
+        CORSRule.Builder builder = CORSRule.builder();
+        corsRuleObjMap.forEach((key, value) -> {
+            switch (key.toString()) {
+                case "AllowedMethod":
+                    if (value instanceof List) {
+                        List<String> allowedMethods = (List<String>) value;
+                        builder.allowedMethods(allowedMethods);
+                    } else if (value instanceof String) {
+                        builder.allowedMethods(Collections.singletonList(((String) value)));
+                    } else {
+                        throw new IllegalArgumentException(String.format("AllowedMethod [%s] Format error", value));
+                    }
+                    break;
+                case "ExposeHeader":
+                    if (value instanceof List) {
+                        List<String> exposeHeaders = (List<String>) value;
+                        builder.exposeHeaders(exposeHeaders);
+                    } else if (value instanceof String) {
+                        builder.exposeHeaders(Collections.singletonList(((String) value)));
+                    } else {
+                        throw new IllegalArgumentException(String.format("ExposeHeader [%s] Format error", value));
+                    }
+                    break;
+                case "AllowedHeader":
+                    if (value instanceof List) {
+                        List<String> allowedHeaders = (List<String>) value;
+                        builder.allowedHeaders(allowedHeaders);
+                    } else if (value instanceof String) {
+                        builder.allowedHeaders(Collections.singletonList(((String) value)));
+                    } else {
+                        throw new IllegalArgumentException(String.format("AllowedHeader [%s] Format error", value));
+                    }
+                    break;
+                case "AllowedOrigin":
+                    if (value instanceof List) {
+                        List<String> allowedOrigins = (List<String>) value;
+                        builder.allowedOrigins(allowedOrigins);
+                    } else if (value instanceof String) {
+                        builder.allowedOrigins(Collections.singletonList(((String) value)));
+                    } else {
+                        throw new IllegalArgumentException(String.format("AllowedOrigin [%s] Format error", value));
+                    }
+                    break;
+                case "ID":
+                    if (value instanceof String) {
+                        builder.id((String) value);
+                    } else {
+                        throw new IllegalArgumentException(String.format("ID [%s] not String", value));
+                    }
+                    break;
+                case "MaxAgeSeconds":
+                    if (value instanceof Integer) {
+                        builder.maxAgeSeconds((Integer) value);
+                    } else if (NumberUtil.isNumber(value.toString())) {
+                        builder.maxAgeSeconds(Integer.parseInt((String) value));
+                    } else {
+                        throw new IllegalArgumentException(String.format("MaxAgeSeconds [%s] not number", value));
+                    }
+                    break;
+                default:
+                    throw new IllegalArgumentException(String.format("Unknown cors config item [%s]", key));
+            }
+        });
+
+        return builder.build();
+    }
+
+
+    public static void main(String[] args) {
+        String xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+                "<CORSConfiguration xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">\n" +
+                "    <CORSRule>\n" +
+                "        <hjjdsa>ecf61fee281342d69005831895e36afd</hjjdsa>\n" +
+                "        <AllowedHeader>*</AllowedHeader>\n" +
+                "        <AllowedMethod>PUT</AllowedMethod>\n" +
+                "        <AllowedMethod>POST</AllowedMethod>\n" +
+                "        <AllowedMethod>DELETE</AllowedMethod>\n" +
+                "        <AllowedOrigin>http://www.example.com</AllowedOrigin>\n" +
+                "        <AllowedOrigin>http://www.example2.com</AllowedOrigin>\n" +
+                "        <ExposeHeader>x-amz-server-side-encryption</ExposeHeader>\n" +
+                "        <ExposeHeader>x-amz-request-id</ExposeHeader>\n" +
+                "        <ExposeHeader>x-amz-id-2</ExposeHeader>\n" +
+                "        <MaxAgeSeconds>3000</MaxAgeSeconds>\n" +
+                "    </CORSRule>\n" +
+                "\n" +
+                "    <CORSRule>\n" +
+                "        <ID>ecf61fee281342d69004323232436afd</ID>\n" +
+                "        <AllowedHeader>*</AllowedHeader>\n" +
+                "        <AllowedMethod>PUT</AllowedMethod>\n" +
+                "        <AllowedMethod>POST</AllowedMethod>\n" +
+                "        <AllowedMethod>DELETE</AllowedMethod>\n" +
+                "        <AllowedOrigin>http://www.example.com</AllowedOrigin>\n" +
+                "        <AllowedOrigin>http://www.example2.com</AllowedOrigin>\n" +
+                "        <ExposeHeader>x-amz-server-side-encryption</ExposeHeader>\n" +
+                "        <ExposeHeader>x-amz-request-id</ExposeHeader>\n" +
+                "        <ExposeHeader>x-amz-id-2</ExposeHeader>\n" +
+                "        <MaxAgeSeconds>3000</MaxAgeSeconds>\n" +
+                "    </CORSRule>\n" +
+                "</CORSConfiguration>";
+        //  List<CORSRule> corsRuleList = xmlToCorsRules(xml);
+
+        String json = "[\n" +
+                "    {\n" +
+                "        \"AllowedMethod\" : [\n" +
+                "            \"PUT\",\n" +
+                "            \"POST\",\n" +
+                "            \"DELETE\"\n" +
+                "        ],\n" +
+                "        \"MaxAgeSeconds\" : \"3000\",\n" +
+                "        \"ExposeHeader\" : [\n" +
+                "            \"x-amz-server-side-encryption\",\n" +
+                "            \"x-amz-request-id\",\n" +
+                "            \"x-amz-id-2\"\n" +
+                "        ],\n" +
+                "        \"ID\" : \"432343243242342\",\n" +
+                "        \"AllowedOrigin\" : [\n" +
+                "            \"http://www.example.com\",\n" +
+                "            \"http://www.example2.com\"\n" +
+                "        ],\n" +
+                "        \"AllowedHeader\" : \"*\"\n" +
+                "    },\n" +
+                "    {\n" +
+                "        \"AllowedMethod\" : [\n" +
+                "            \"PUT\",\n" +
+                "            \"POST\",\n" +
+                "            \"DELETE\"\n" +
+                "        ],\n" +
+                "        \"MaxAgeSeconds\" : \"3000\",\n" +
+                "        \"ExposeHeader\" : [\n" +
+                "            \"x-amz-server-side-encryption\",\n" +
+                "            \"x-amz-request-id\",\n" +
+                "            \"x-amz-id-2\"\n" +
+                "        ],\n" +
+                "        \"ID\" : \"3243242323fhgfhgfhf\",\n" +
+                "        \"AllowedOrigin\" : [\n" +
+                "            \"http://www.example.com\",\n" +
+                "            \"http://www.example2.com\"\n" +
+                "        ],\n" +
+                "        \"AllowedHeader\" : \"*\"\n" +
+                "    }\n" +
+                "]";
+
+
+        String json2 = " {\n" +
+                "        \"AllowedMethod\" : [\n" +
+                "            \"PUT\",\n" +
+                "            \"POST\",\n" +
+                "            \"DELETE\"\n" +
+                "        ],\n" +
+                "        \"MaxAgeSeconds\" : \"3000\",\n" +
+                "        \"ExposeHeader\" : [\n" +
+                "            \"x-amz-server-side-encryption\",\n" +
+                "            \"x-amz-request-id\",\n" +
+                "            \"x-amz-id-2\"\n" +
+                "        ],\n" +
+                "        \"ID\" : \"432343243242342\",\n" +
+                "        \"AllowedOrigin\" : [\n" +
+                "            \"http://www.example.com\",\n" +
+                "            \"http://www.example2.com\"\n" +
+                "        ],\n" +
+                "        \"AllowedHeader\" : \"*\"\n" +
+                "    }";
+
+        String json3 = "{\"abc\":\"dsfsd\"}";
+        List<CORSRule> corsRuleList = xmlToCorsRules(xml);
+        System.out.println(corsRuleList);
     }
 }
