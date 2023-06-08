@@ -166,4 +166,30 @@ public interface IAmazonS3V2Bucket extends IAmazonS3V2AsyncBucket {
      * @return 配置桶的跨域结果
      */
     Optional<PutBucketCorsResponse> putBucketCors(String bucketName, String accountId, List<CORSRule> corsRules);
+
+
+    /**
+     * 获取桶的策略
+     *
+     * @param bucketName 桶名称
+     * @return 桶的策略
+     */
+    Optional<GetBucketPolicyResponse> getBucketPolicy(String bucketName);
+
+    /**
+     * 设置桶的策略
+     *
+     * @param bucketName 需要设置的桶
+     * @param policy     桶策略
+     * @return 设置结果
+     */
+    Optional<PutBucketPolicyResponse> setBucketPolicy(String bucketName, String policy);
+
+    /**
+     * 删除桶的策略
+     *
+     * @param bucketName 需要删除策略的桶
+     * @return 删除策略结果
+     */
+    Optional<DeleteBucketPolicyResponse> deleteBucketPolicy(String bucketName);
 }

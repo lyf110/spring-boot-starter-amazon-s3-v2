@@ -243,13 +243,13 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
         bucketName = handlerBucketName(bucketName);
 
         if (isBucketExists(bucketName)) {
-            log.info("the bucket {} already exists", bucketName);
+            log.debug("the bucket {} already exists", bucketName);
             return Optional.of(CreateBucketResponse.builder().location(FILE_SEPARATOR + bucketName).build());
         }
 
         try {
             CreateBucketResponse createBucketResponse = s3Client.createBucket(CreateBucketRequest.builder().bucket(bucketName).build());
-            log.info("create bucket {} success", bucketName);
+            log.debug("create bucket {} success", bucketName);
             return Optional.ofNullable(createBucketResponse);
         } catch (S3Exception e) {
             log.error("create bucket {} failed, the cause is ", bucketName, e);
@@ -343,7 +343,7 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
             // 删除完所有的对象之后，我们才删除桶
             DeleteBucketRequest deleteBucketRequest = DeleteBucketRequest.builder().bucket(bucketName).build();
             DeleteBucketResponse deleteBucketResponse = s3Client.deleteBucket(deleteBucketRequest);
-            log.info("delete bucket {} success", bucketName);
+            log.debug("delete bucket {} success", bucketName);
             return Optional.ofNullable(deleteBucketResponse);
         } catch (S3Exception e) {
             log.error("delete bucket {} failed, the cause is ", bucketName, e);
@@ -373,7 +373,7 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
 
             // 删除完所有的对象之后，我们才删除桶
             DeleteBucketResponse deleteBucketResponse = s3Client.deleteBucket(DeleteBucketRequest.builder().bucket(bucketName).build());
-            log.info("delete bucket {} success", bucketName);
+            log.debug("delete bucket {} success", bucketName);
             return Optional.ofNullable(deleteBucketResponse);
         } catch (S3Exception e) {
             log.error("delete bucket {} failed, the cause is ", bucketName, e);
@@ -802,7 +802,7 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
                                     .partNumber(partNumber).build();
 
                             String etag = s3Client.uploadPart(uploadRequest, RequestBody.fromBytes(bytes)).eTag();
-                            log.info("part {}, upload success", partNumber);
+                            log.debug("part {}, upload success", partNumber);
 
                             CompletedPart part = CompletedPart.builder().partNumber(partNumber).eTag(etag).build();
                             completedPartList.add(part);
@@ -872,7 +872,7 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
 
         // 获取上传ID
         String uploadId = response.uploadId();
-        log.info("bucket {} object name {}, uploadId {}", bucketName, objectName, uploadId);
+        log.debug("bucket {} object name {}, uploadId {}", bucketName, objectName, uploadId);
 
 
         try {
@@ -893,7 +893,7 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
                             .build();
             // 最后完成分片上传逻辑
             CompleteMultipartUploadResponse completeMultipartUploadResponse = s3Client.completeMultipartUpload(completeMultipartUploadRequest);
-            log.info("Upload an object in parts success, bucket {} object name {}, uploadId {}",
+            log.debug("Upload an object in parts success, bucket {} object name {}, uploadId {}",
                     bucketName,
                     objectName,
                     uploadId);
@@ -904,7 +904,7 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
             try {
                 Optional<AbortMultipartUploadResponse> abortMultipartUploadResponse = abortMultipartUpload(bucketName, objectName, uploadId);
                 if (abortMultipartUploadResponse.isPresent()) {
-                    log.info("abort upload objects part success, bucket {} object name {}, uploadId {}", bucketName, objectName, uploadId);
+                    log.debug("abort upload objects part success, bucket {} object name {}, uploadId {}", bucketName, objectName, uploadId);
                 }
             } catch (AwsServiceException | SdkClientException ex) {
                 throw new RuntimeException(ex);
@@ -945,7 +945,7 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
                                 .partNumber(partNumber).build();
 
                         String etag = s3Client.uploadPart(uploadRequest, requestBodies.get(index)).eTag();
-                        log.info("part {}, upload success", partNumber);
+                        log.debug("part {}, upload success", partNumber);
 
                         CompletedPart part = CompletedPart.builder().partNumber(partNumber).eTag(etag).build();
                         completedPartList.add(part);
@@ -1101,7 +1101,7 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
 
 
             URL url = s3Utilities.getUrl(request);
-            log.info("bucket [{}] object [{}] url [{}]", bucketName, objectName, url);
+            log.debug("bucket [{}] object [{}] url [{}]", bucketName, objectName, url);
             return Optional.of(url);
         } catch (S3Exception e) {
             log.error("bucket [{}] object [{}]", bucketName, objectName, e);
@@ -1142,7 +1142,7 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
             // 请求获取预签名对象
             PresignedGetObjectRequest presignedGetObjectRequest = s3Presigner.presignGetObject(getObjectPresignRequest);
             String presignedGetUrl = presignedGetObjectRequest.url().toString();
-            log.info("Presigned URL: {}", presignedGetUrl);
+            log.debug("Presigned URL: {}", presignedGetUrl);
             return Optional.of(presignedGetObjectRequest);
         } catch (S3Exception e) {
             log.error("bucketName {} objectName {} signatureTime {}, get Presigned Url failed, the cause is ",
@@ -1184,7 +1184,7 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
         File file = new File(downloadFilePath);
 
         if (file.exists()) {
-            log.info("{} already exists, no need to download", downloadFilePath);
+            log.debug("{} already exists, no need to download", downloadFilePath);
             return;
         }
 
@@ -1195,7 +1195,7 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
              BufferedOutputStream bufferedOutputStream = new BufferedOutputStream(new FileOutputStream(file))
         ) {
             IOUtils.copy(bufferedInputStream, bufferedOutputStream);
-            log.info("{} download success", downloadFilePath);
+            log.debug("{} download success", downloadFilePath);
         }
     }
 
@@ -1415,7 +1415,7 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
                         .replace(parentPath, parentFile.getName());
 
 
-                log.info("objectName: {}", objectName);
+                log.debug("objectName: {}", objectName);
                 if (tmpFile.length() < MAX_SINGLETON_SIZE) {
                     System.out.println(putObject(bucketName, objectName, null, RequestBody.fromFile(tmpFile)));
                 } else {
@@ -1453,7 +1453,7 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
         ListObjectsV2Response listObjectsV2Response = s3Client.listObjectsV2(builder.build());
         List<S3Object> contents = listObjectsV2Response.contents();
         if (CollectionUtil.isEmpty(contents)) {
-            log.info("bucket {}, object prefix {} is empty, not need download", bucketName, objectPrefix);
+            log.debug("bucket {}, object prefix {} is empty, not need download", bucketName, objectPrefix);
             return;
         }
 
@@ -1486,7 +1486,7 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
                  BufferedOutputStream bos = new BufferedOutputStream(new FileOutputStream(file))
             ) {
                 IOUtils.copy(responseInputStream, bos);
-                log.info("{} download success", file.getCanonicalPath());
+                log.debug("{} download success", file.getCanonicalPath());
             }
         }
     }
@@ -1771,7 +1771,7 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
         FileDownload downloadFile = transferManager.downloadFile(downloadFileRequest);
 
         CompletedFileDownload downloadResult = downloadFile.completionFuture().join();
-        log.info("object name [{}] Content length [{}]", objectName, downloadResult.response().contentLength());
+        log.debug("object name [{}] Content length [{}]", objectName, downloadResult.response().contentLength());
         return downloadResult.response().contentLength();
     }
 
@@ -1851,7 +1851,7 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
         FileUpload fileUpload = transferManager.uploadFile(uploadFileRequest);
 
         CompletedFileUpload uploadResult = fileUpload.completionFuture().join();
-        log.info("object name [{}] eTag [{}]", objectName, uploadResult.response().eTag());
+        log.debug("object name [{}] eTag [{}]", objectName, uploadResult.response().eTag());
         return uploadResult.response().eTag();
     }
 
@@ -1921,7 +1921,7 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
         Copy copy = transferManager.copy(copyRequest);
 
         CompletedCopy completedCopy = copy.completionFuture().join();
-        log.info("copy object from bucket [{}] object [{}] to bucket [{}] object [{}] success",
+        log.debug("copy object from bucket [{}] object [{}] to bucket [{}] object [{}] success",
                 srcBucketName,
                 srcObjectName,
                 destBucketName,
@@ -2109,4 +2109,77 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
             return Optional.empty();
         }
     }
+
+
+    /**
+     * 获取桶的策略
+     *
+     * @param bucketName 桶名称
+     * @return 桶的策略
+     */
+    @Override
+    public Optional<GetBucketPolicyResponse> getBucketPolicy(String bucketName) {
+        try {
+            bucketName = handlerBucketName(bucketName);
+            GetBucketPolicyRequest getBucketPolicyRequest = GetBucketPolicyRequest.builder()
+                    .bucket(bucketName)
+                    .build();
+            GetBucketPolicyResponse policyResponse = s3Client.getBucketPolicy(getBucketPolicyRequest);
+            log.debug("policy: {}", policyResponse.policy());
+            return Optional.of(policyResponse);
+        } catch (S3Exception e) {
+            log.error("get Bucket [{}] Policy failed, the cause is ", bucketName, e);
+            return Optional.empty();
+        }
+    }
+
+
+    /**
+     * 设置桶的策略
+     *
+     * @param bucketName 需要设置的桶
+     * @param policy     桶策略
+     * @return 设置结果
+     */
+    public Optional<PutBucketPolicyResponse> setBucketPolicy(String bucketName, String policy) {
+        try {
+            bucketName = handlerBucketName(bucketName);
+            Assert.notEmpty(policy, "policy not empty");
+            PutBucketPolicyRequest putBucketPolicyRequest = PutBucketPolicyRequest.builder()
+                    .bucket(bucketName)
+                    .policy(policy)
+                    .build();
+            PutBucketPolicyResponse putBucketPolicyResponse = s3Client.putBucketPolicy(putBucketPolicyRequest);
+            log.debug("set Bucket [{}] Policy [{}] success, the result is [{}]", bucketName, policy, putBucketPolicyResponse);
+            return Optional.of(putBucketPolicyResponse);
+        } catch (S3Exception e) {
+            log.error("set Bucket [{}] Policy [{}] failed, the cause is ", bucketName, policy, e);
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * 删除桶的策略
+     *
+     * @param bucketName 需要删除策略的桶
+     * @return 删除策略结果
+     */
+    @Override
+    public Optional<DeleteBucketPolicyResponse> deleteBucketPolicy(String bucketName) {
+        try {
+            bucketName = handlerBucketName(bucketName);
+
+            DeleteBucketPolicyRequest deleteBucketPolicyRequest = DeleteBucketPolicyRequest.builder()
+                    .bucket(bucketName)
+                    .build();
+            DeleteBucketPolicyResponse deleteBucketPolicyResponse = s3Client.deleteBucketPolicy(deleteBucketPolicyRequest);
+            log.debug("delete Bucket [{}] Policy success, the result is [{}]", bucketName, deleteBucketPolicyResponse);
+            return Optional.of(deleteBucketPolicyResponse);
+        } catch (S3Exception e) {
+            log.error("delete Bucket [{}] Policy failed, the cause is ", bucketName, e);
+            return Optional.empty();
+        }
+    }
+
+
 }
