@@ -2238,6 +2238,4 @@ public class AmazonS3V2Template implements IAmazonS3V2Template {
             return Optional.empty();
         }
     }
-
-
 }
